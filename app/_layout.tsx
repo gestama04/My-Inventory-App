@@ -1,9 +1,22 @@
 import { Stack } from "expo-router";
 import { ThemeProvider, useTheme } from "./theme-context";
 import { View, StyleSheet } from "react-native";
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect } from 'react';
 
 function AppLayout() {
   const { currentTheme } = useTheme();
+
+  // Adicione este useEffect para gerenciar a splash screen nativa
+  useEffect(() => {
+    // Impede que a splash screen nativa desapareça automaticamente
+    SplashScreen.preventAutoHideAsync();
+    
+    // Esconde a splash screen nativa após um tempo
+    setTimeout(() => {
+      SplashScreen.hideAsync();
+    }, 1000); // Ajuste esse tempo conforme necessário
+  }, []);
 
   return (
     <View style={[styles.container, currentTheme === "dark" ? styles.dark : styles.light]}>
@@ -19,12 +32,12 @@ function AppLayout() {
           },
         }}
       >
-        <Stack.Screen 
-          name="splash" 
-          options={{ 
+        <Stack.Screen
+          name="splash"
+          options={{
             headerShown: false,
-            animation: "none" 
-          }} 
+            animation: "none"
+          }}
         />
         <Stack.Screen name="index" options={{ title: "My Inventory App" }} />
         <Stack.Screen name="add" options={{ title: "       Adicionar Item" }} />
