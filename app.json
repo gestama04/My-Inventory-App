@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "InventoryAppNew",
-    "slug": "InventoryAppNew",
+    "name": "My Inventory App",
+    "slug": "MyInventoryApp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -35,11 +35,20 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
+          "imageWidth": 500,
+          "resizeMode": "cover",
           "backgroundColor": "#ffffff"
         }
+      ],
+      [
+          "expo-notifications",
+          {
+            "icon": "./assets/notification-icon.png",
+            "color": "#ffffff",
+            "sounds": ["./assets/notification-sound.wav"]
+          }
       ]
+
     ],
     "experiments": {
       "typedRoutes": true

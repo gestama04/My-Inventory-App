@@ -3,19 +3,37 @@ import { ThemeProvider, useTheme } from "./theme-context";
 import { View, StyleSheet } from "react-native";
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { NotificationService } from './notifications';
 
 function AppLayout() {
   const { currentTheme } = useTheme();
 
-  // Adicione este useEffect para gerenciar a splash screen nativa
+  // Adicione este useEffect para gerenciar a splash screen nativa e notificações
   useEffect(() => {
-    // Impede que a splash screen nativa desapareça automaticamente
-    SplashScreen.preventAutoHideAsync();
-    
-    // Esconde a splash screen nativa após um tempo
-    setTimeout(() => {
-      SplashScreen.hideAsync();
-    }, 1000); // Ajuste esse tempo conforme necessário
+    async function prepare() {
+      try {
+        // Impede que a splash screen nativa desapareça automaticamente
+        await SplashScreen.preventAutoHideAsync();
+        
+        // Inicializar o serviço de notificações
+        await NotificationService.registerForPushNotificationsAsync();
+        
+        // Configurar verificação periódica de stock
+        await NotificationService.setupPeriodicStockCheck();
+        
+        // Verificar níveis de stock imediatamente
+        await NotificationService.checkStockLevels();
+      } catch (e) {
+        console.warn('Erro ao inicializar:', e);
+      } finally {
+        // Esconde a splash screen nativa após inicializar tudo
+        setTimeout(() => {
+          SplashScreen.hideAsync();
+        }, 1000); // Ajuste esse tempo conforme necessário
+      }
+    }
+
+    prepare();
   }, []);
 
   return (

@@ -8,7 +8,10 @@ import {
   Alert,
   TextInput,
   TouchableOpacity,
-  ScrollView
+  ScrollView,
+  TouchableHighlight,
+  Keyboard,
+  KeyboardAvoidingView, Platform
 } from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -19,6 +22,7 @@ interface Item {
   name: string;
   quantity: string;
   category: string;
+  lowStockThreshold?: string;
 }
 
 export default function InventoryScreen() {
@@ -30,6 +34,69 @@ export default function InventoryScreen() {
   const [showFilters, setShowFilters] = useState(false);
   const router = useRouter();
   const { currentTheme } = useTheme();
+  const [lowStockThreshold, setLowStockThreshold] = useState<number>(5);
+  const [globalLowStockThreshold, setGlobalLowStockThreshold] = useState("5");
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  // Adicione este useEffect para ouvir eventos de teclado
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      (event) => {
+        setKeyboardVisible(true);
+        setKeyboardHeight(event.endCoordinates.height);
+      }
+    );
+    
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+  
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+  
+  const handleItemLongPress = (item: Item) => {
+    Alert.alert(
+      item.name,
+      "O que deseja fazer com este item?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Editar", onPress: () => handleEditItem(item) },
+        { 
+          text: "Remover", 
+          style: "destructive",
+          onPress: () => handleRemoveItem(item) 
+        },
+      ]
+    );
+  };
+
+  const isLowStock = (item: Item): boolean => {
+    const numQuantity = parseInt(item.quantity.toString());
+    
+    // Primeiro verifica se o item tem um threshold personalizado
+    if (item.lowStockThreshold !== undefined && item.lowStockThreshold !== "") {
+      const itemThreshold = parseInt(item.lowStockThreshold);
+      return numQuantity > 0 && numQuantity <= itemThreshold;
+    }
+    
+    // Caso contrário, usa o threshold global
+    const threshold = parseInt(globalLowStockThreshold);
+    return numQuantity > 0 && numQuantity <= threshold;
+  };
+  
+  const isOutOfStock = (quantity: string | number): boolean => {
+    return parseInt(quantity.toString()) === 0;
+  };
 
   // Clear all filters
   const clearFilters = async () => {
@@ -115,20 +182,42 @@ export default function InventoryScreen() {
         try {
           const storedItems = await AsyncStorage.getItem("inventory");
           const parsedItems: Item[] = storedItems ? JSON.parse(storedItems) : [];
-
+  
           if (!Array.isArray(parsedItems)) {
             console.error("Erro: Dados corrompidos no AsyncStorage.");
             Alert.alert("Erro", "Os dados do inventário estão corrompidos.");
             return;
           }
-
+  
+          // Atualiza os items no estado
           setItems(parsedItems);
+          
+          // Opcionalmente, carregue o threshold de low stock também
+          // const storedThreshold = await AsyncStorage.getItem("lowStockThreshold");
+          // if (storedThreshold) {
+          //   setLowStockThreshold(parseInt(storedThreshold));
+          // }
         } catch (error) {
           console.error("Erro ao carregar itens", error);
         }
       };
-
+  
       loadItems();
+      const loadSettings = async () => {
+        try {
+          const storedThreshold = await AsyncStorage.getItem("globalLowStockThreshold");
+          if (storedThreshold) {
+            setGlobalLowStockThreshold(storedThreshold);
+          }
+        } catch (error) {
+          console.error("Erro ao carregar configurações", error);
+        }
+      };
+      
+      // Chame esta função em seu useFocusEffect ou useEffect
+      loadSettings();
+      // Importante: este efeito será executado sempre que a tela receber foco
+      // (quando você voltar da tela de edição)
     }, [])
   );
 
@@ -219,33 +308,89 @@ export default function InventoryScreen() {
       }
     });
 
-  const renderCategorySection = (category: string, categoryItems: Item[]) => (
-    <View key={category} style={styles.categorySection}>
-      <Text style={styles.categoryTitle}>
-        {category}
+    const renderCategorySection = (category: string, categoryItems: Item[]) => (
+      <View key={category} style={styles.categorySection}>
+        <Text style={styles.categoryTitle}>
+          {category}
+        </Text>
+        {categoryItems.map((item) => (
+          <TouchableHighlight
+            key={item.name}
+            underlayColor={currentTheme === "dark" ? "#444" : "#f0f0f0"}
+            onLongPress={() => handleItemLongPress(item)}
+            delayLongPress={500}
+          >
+            <View style={[
+              styles.itemContainer,
+              isOutOfStock(item.quantity) && [
+                styles.outOfStockItem,
+                { backgroundColor: currentTheme === "dark" ? '#3a0404' : '#ffecec' }
+              ],
+              isLowStock(item) && [
+                styles.lowStockItem,
+                { backgroundColor: currentTheme === "dark" ? '#402c01' : '#fff9e6' }
+              ]
+            ]}>
+             {/* Container para o nome com rolagem horizontal */}
+<View style={{flex: 1, marginRight: 10}}>
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    nestedScrollEnabled={true}
+    contentContainerStyle={{ flexGrow: 0 }} // Mudança importante: usar 0 em vez de 1
+    style={{ width: '100%' }}
+  >
+    <TouchableOpacity 
+      activeOpacity={1}
+      onPress={() => {}} // Vai capturar taps mas permitir rolagem
+    >
+      <Text
+        style={[
+          styles.item,
+          { flexShrink: 0, paddingRight: 20 }, // Adicionar mais padding direito
+          currentTheme === "dark" ? styles.darkText : styles.lightText,
+          isOutOfStock(item.quantity) && styles.outOfStockText,
+          isLowStock(item) && styles.lowStockText
+        ]}
+        numberOfLines={1}
+      >
+        {item.name}
       </Text>
-      {categoryItems.map((item) => (
-        <View key={item.name} style={styles.itemContainer}>
-          <View style={styles.itemInfo}>
-            <Text style={[styles.item, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-              {item.name}
-            </Text>
-            <Text style={[styles.quantity, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-              X{item.quantity}
-            </Text>
-          </View>
-          <View style={styles.itemActions}>
-            <TouchableOpacity onPress={() => handleEditItem(item)}>
-              <Ionicons name="pencil" size={28} color={currentTheme === "dark" ? "#fff" : "grey"} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleRemoveItem(item)}>
-              <Ionicons name="trash" size={26} color="red" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      ))}
-    </View>
-  );
+    </TouchableOpacity>
+  </ScrollView>
+</View>
+
+              
+              <View style={styles.statusContainer}>
+                <Text style={[
+                  styles.quantity,
+                  currentTheme === "dark" ? styles.darkText : styles.lightText,
+                  isOutOfStock(item.quantity) && styles.outOfStockText,
+                  isLowStock(item) && styles.lowStockText
+                ]}>
+                  X{item.quantity}
+                </Text>
+                
+                {isOutOfStock(item.quantity) && (
+                  <View style={styles.stockBadge}>
+                    <Text style={styles.stockBadgeText}>Sem stock</Text>
+                  </View>
+                )}
+                
+                {isLowStock(item) && (
+                  <View style={[styles.stockBadge, styles.lowStockBadge]}>
+                    <Text style={styles.stockBadgeText}>Stock baixo</Text>
+                  </View>
+                )}
+              </View>
+              
+              
+            </View>
+          </TouchableHighlight>
+        ))}
+      </View>
+    );
+    
 
   const groupedItems = filteredAndSortedItems.reduce((acc, item) => {
     if (!acc[item.category]) acc[item.category] = [];
@@ -299,6 +444,11 @@ export default function InventoryScreen() {
   });
   
   return (
+    <KeyboardAvoidingView 
+    behavior={Platform.OS === "ios" ? "padding" : "height"}
+    style={{ flex: 1 }}
+    keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+    >
     <View style={[styles.container, currentTheme === "dark" ? styles.dark : styles.light]}>
       <View style={styles.searchContainer}>
         <View style={[
@@ -331,12 +481,16 @@ export default function InventoryScreen() {
       </View>
 
       {showFilters && (
-  <ScrollView
+        
+<ScrollView
     horizontal
     showsHorizontalScrollIndicator={false}
-    style={styles.categoriesContainer}
-    contentContainerStyle={styles.categoriesContent}
-  >
+    style={[
+      styles.categoriesContainer,
+      keyboardVisible ? { maxHeight: 220 } : {} // Reduzir altura quando teclado está visível
+          ]}
+          contentContainerStyle={styles.categoriesContent}
+        >
     {/* A-Z (All Items) */}
     <TouchableOpacity
       style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
@@ -442,30 +596,86 @@ export default function InventoryScreen() {
 )}
 
 
-{sortType === 'nameAsc' || sortType === 'nameDesc' || 
+{sortType === 'nameAsc' || sortType === 'nameDesc' ||
  sortType === 'quantityAsc' || sortType === 'quantityDesc' ? (
   <FlatList
+  style={{ marginTop: showFilters ? -345 : 0, marginBottom: keyboardVisible ? keyboardHeight - 120 : 0}} // Ajusta a margem apenas quando os filtros estão visíveis
     data={allItemsSorted}
+    keyboardShouldPersistTaps="handled"
+    keyboardDismissMode="on-drag"
     keyExtractor={(item) => `${item.name}-${item.category}`}
     renderItem={({ item }) => (
-      <View style={styles.itemContainer}>
-        <View style={styles.itemInfo}>
-          <Text style={[styles.item, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-            {item.name}
-          </Text>
-          <Text style={[styles.quantity, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-            X{item.quantity}
-          </Text>
+      <TouchableHighlight
+        underlayColor={currentTheme === "dark" ? "#444" : "#f0f0f0"}
+        onLongPress={() => handleItemLongPress(item)}
+        delayLongPress={500}
+      >
+        <View style={[
+          styles.itemContainer,
+          isOutOfStock(item.quantity) && [
+            styles.outOfStockItem,
+            { backgroundColor: currentTheme === "dark" ? '#3a0404' : '#ffecec' }
+          ],
+          isLowStock(item) && [
+            styles.lowStockItem,
+            { backgroundColor: currentTheme === "dark" ? '#402c01' : '#fff9e6' }
+          ]
+        ]}>
+         {/* Container para o nome com rolagem horizontal */}
+<View style={{flex: 1, marginRight: 10}}>
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    nestedScrollEnabled={true}
+    contentContainerStyle={{ flexGrow: 0 }} // Mudança importante: usar 0 em vez de 1
+    style={{ width: '100%' }}
+  >
+    <TouchableOpacity 
+      activeOpacity={1}
+      onPress={() => {}} // Vai capturar taps mas permitir rolagem
+    >
+      <Text
+        style={[
+          styles.item,
+          { flexShrink: 0, paddingRight: 20 }, // Adicionar mais padding direito
+          currentTheme === "dark" ? styles.darkText : styles.lightText,
+          isOutOfStock(item.quantity) && styles.outOfStockText,
+          isLowStock(item) && styles.lowStockText
+        ]}
+        numberOfLines={1}
+      >
+        {item.name}
+      </Text>
+    </TouchableOpacity>
+  </ScrollView>
+</View>
+
+         
+          {/* StatusContainer separado, ao lado do ScrollView */}
+          <View style={styles.statusContainer}>
+            <Text style={[
+              styles.quantity,
+              currentTheme === "dark" ? styles.darkText : styles.lightText,
+              isOutOfStock(item.quantity) && styles.outOfStockText,
+              isLowStock(item) && styles.lowStockText
+            ]}>
+              X{item.quantity}
+            </Text>
+           
+            {isOutOfStock(item.quantity) && (
+              <View style={styles.stockBadge}>
+                <Text style={styles.stockBadgeText}>Sem stock</Text>
+              </View>
+            )}
+           
+            {isLowStock(item) && (
+              <View style={[styles.stockBadge, styles.lowStockBadge]}>
+                <Text style={styles.stockBadgeText}>Stock baixo</Text>
+              </View>
+            )}
+          </View>
         </View>
-        <View style={styles.itemActions}>
-          <TouchableOpacity onPress={() => handleEditItem(item)}>
-            <Ionicons name="pencil" size={28} color={currentTheme === "dark" ? "#fff" : "grey"} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => handleRemoveItem(item)}>
-            <Ionicons name="trash" size={26} color="red" />
-          </TouchableOpacity>
-        </View>
-      </View>
+      </TouchableHighlight>
     )}
   />
 ) : (
@@ -496,28 +706,30 @@ export default function InventoryScreen() {
   />
 )}
 
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
-          onPress={() => router.replace("/add")}
-        >
-          <Ionicons name="add-circle" size={24} color={currentTheme === "dark" ? "#fff" : "green"} />
-          <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-            Adicionar
-          </Text>
-        </TouchableOpacity>
+<View style={styles.buttonContainer}>
+  <TouchableOpacity
+    style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
+    onPress={() => router.replace("/add")}
+  >
+    <Ionicons name="add-circle" size={24} color={currentTheme === "dark" ? "#fff" : "green"} />
+    <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+      Adicionar
+    </Text>
+  </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
-          onPress={handleClearInventory}
-        >
-          <Ionicons name="trash-bin" size={24} color={currentTheme === "dark" ? "#fff" : "red"} />
-          <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-            Eliminar Tudo
-          </Text>
-        </TouchableOpacity>
-      </View>
+  <TouchableOpacity
+    style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
+    onPress={handleClearInventory}
+  >
+    <Ionicons name="trash-bin" size={24} color={currentTheme === "dark" ? "#fff" : "red"} />
+    <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+      Eliminar Tudo
+    </Text>
+  </TouchableOpacity>
+</View>
+
     </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -540,33 +752,75 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     flex: 1,
   },
-  
+  mainItemContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 10,
+  },
   itemContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    padding: 10,
+    padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#ddd',
     width: "100%",
-  },
-  itemInfo: {
-    flex: 1,
-    flexDirection: "row",
     alignItems: "center",
-    gap: 10,
   },
+  nameScrollContainer: {
+    flex: 1,
+    maxWidth: '70%',
+  },
+  itemContent: {
+    flex: 1,
+    flexDirection: "column", // Alterado para column para permitir quebra de linha
+    marginRight: 10,
+  },
+  infoActionGroup: {
+    flex: 1,
+    marginRight: 10,
+  },
+  nameAndBadgesRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center', 
+    width: '100%',
+  },
+  
   item: {
     fontSize: 18,
+    paddingVertical: 4,
+    paddingRight: 8,
   },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
+    flexShrink: 0,
+    marginLeft: 'auto',
+    paddingLeft: 8,
+  }, 
+
+  inlineBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 10,
+    flexShrink: 0, // Impede que este componente encolha
+  },
+  badgesArea: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+    flexWrap: 'nowrap', // Impede a quebra de linha nos badges
+  },
+  
   quantity: {
     fontSize: 16,
-    color: '#666',
+    marginRight: 4,
+    fontWeight: 'bold',
   },
-  itemActions: {
-    flexDirection: "row",
-    gap: 10,
-  },
+ 
   categorySection: {
     marginBottom: 20,
     width: '100%',
@@ -612,7 +866,7 @@ const styles = StyleSheet.create({
   },
   categoriesContainer: {
     width: '100%',
-    marginBottom: 16,
+    marginBottom: 0,
   },
   categoriesContent: {
     flexDirection: 'row',
@@ -620,7 +874,8 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     alignItems: 'center',
     gap: 8,
-    paddingBottom: 30},
+    paddingBottom: 5
+  },
   categoryChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -637,6 +892,79 @@ const styles = StyleSheet.create({
   },
   categoryChipText: {
     fontSize: 13,
+  },
+  quantityContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  textAndBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+
+  outOfStockItem: {
+
+    borderLeftWidth: 4,
+    borderLeftColor: '#e74c3c',
+  },
+  
+  lowStockItem: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#f39c12',
+  },
+  
+  outOfStockText: {
+    color: '#e74c3c',
+  },
+  
+  lowStockText: {
+    color: '#f39c12',
+  },
+  
+  stockBadge: {
+    backgroundColor: '#e74c3c',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  
+  lowStockBadge: {
+    backgroundColor: '#f39c12',
+  },
+  
+  stockBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  nameAndQuantity: {
+    flex: 1,
+    justifyContent: 'flex-start',
+  },
+  
+  badgesContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+  },
+  
+  itemInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  
+  itemActions: {
+    flexDirection: "row",
+    gap: 10,
+    alignSelf: 'center',
+    marginLeft: 5,
+    flexShrink: 0,
   },
   light: {
     backgroundColor: "#ffffff",
