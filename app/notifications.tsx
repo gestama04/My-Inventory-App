@@ -12,7 +12,9 @@ interface InventoryItem {
   quantity: string | number;
   category?: string;
   price?: string | number;
+  lowStockThreshold?: string; // Add this property
 }
+
 
 interface NotificationItem {
   id: string;
@@ -42,32 +44,48 @@ export default function NotificationsScreen() {
 
   const checkInventoryItems = async () => {
     try {
+      // Get the global threshold
+      const globalThresholdStr = await AsyncStorage.getItem('globalLowStockThreshold') || '5';
+      const globalThreshold = parseInt(globalThresholdStr);
+      
       const inventoryData = await AsyncStorage.getItem('inventory');
       if (!inventoryData) return;
-      
+     
       const inventory: InventoryItem[] = JSON.parse(inventoryData);
-      
-      // Encontrar itens com stock baixo
+     
+      // Find items with low stock, using custom thresholds where available
       const lowStock = inventory.filter(item => {
         const quantity = parseInt(item.quantity.toString());
-        return quantity <= 5 && quantity > 0;
+        
+        // Check if this item has a custom threshold
+        if (item.lowStockThreshold !== undefined) {
+          const customThreshold = parseInt(item.lowStockThreshold);
+          // Only consider valid thresholds (not NaN)
+          if (!isNaN(customThreshold)) {
+            return quantity <= customThreshold && quantity > 0;
+          }
+        }
+        
+        // Fall back to global threshold if no custom threshold or invalid threshold
+        return quantity <= globalThreshold && quantity > 0;
       });
-      
-      // Encontrar itens sem stock
+     
+      // Find items without stock
       const outOfStock = inventory.filter(item => {
         const quantity = parseInt(item.quantity.toString());
         return quantity === 0;
       });
-      
+     
       setLowStockItems(lowStock);
       setOutOfStockItems(outOfStock);
-      
-      // Gerar notificações locais na tela
+     
+      // Generate local screen notifications
       generateNotificationItems(lowStock, outOfStock);
     } catch (error) {
       console.error('Erro ao verificar inventário:', error);
     }
   };
+  
 
   const generateNotificationItems = (lowStock: InventoryItem[], outOfStock: InventoryItem[]) => {
     const newNotifications: NotificationItem[] = [];

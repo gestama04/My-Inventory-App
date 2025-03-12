@@ -3,14 +3,14 @@ import * as Device from 'expo-device';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// Definir a interface para os itens do inventário
+// Updated interface for inventory items to include the lowStockThreshold
 interface InventoryItem {
   id?: string;
   name: string;
   quantity: string | number;
   category?: string;
   price?: string | number;
-  // Adicione outros campos conforme necessário
+  lowStockThreshold?: string;
 }
 
 // Configuração de como as notificações devem aparecer
@@ -57,18 +57,35 @@ export class NotificationService {
   // Verificar níveis de stock e agendar notificações conforme necessário
   static async checkStockLevels() {
     try {
+      // Get the global threshold value first
+      const globalThresholdStr = await AsyncStorage.getItem('globalLowStockThreshold') || '5';
+      const globalThreshold = parseInt(globalThresholdStr);
+      
       const inventoryData = await AsyncStorage.getItem('inventory');
       if (!inventoryData) return;
      
       const inventory: InventoryItem[] = JSON.parse(inventoryData);
+      
+      // Filter items considering custom thresholds
       const lowStockItems = inventory.filter(item => {
         const quantity = parseInt(item.quantity.toString());
-        return quantity <= 5 && quantity > 0; // Alerta para itens com 5 ou menos unidades
+        
+        // Check if this item has a custom threshold
+        if (item.lowStockThreshold !== undefined) {
+          const customThreshold = parseInt(item.lowStockThreshold);
+          // Only consider valid thresholds (not NaN)
+          if (!isNaN(customThreshold)) {
+            return quantity <= customThreshold && quantity > 0;
+          }
+        }
+        
+        // Fall back to global threshold if no custom threshold or invalid threshold
+        return quantity <= globalThreshold && quantity > 0;
       });
      
       const outOfStockItems = inventory.filter(item => {
         const quantity = parseInt(item.quantity.toString());
-        return quantity === 0; // Alerta para itens sem stock
+        return quantity === 0; // Always alert for items with zero stock
       });
      
       // Agendar novas notificações se necessário

@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "My Inventory App",
-    "slug": "MyInventoryApp",
+    "slug": "InventoryAppNew",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

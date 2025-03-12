@@ -3,7 +3,7 @@ import { ThemeProvider, useTheme } from "./theme-context";
 import { View, StyleSheet } from "react-native";
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { NotificationService } from './notifications';
+import { NotificationService } from '../services/notification-service';
 
 function AppLayout() {
   const { currentTheme } = useTheme();
