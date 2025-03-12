@@ -12,7 +12,7 @@ import * as FileSystem from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
 
-const genAI = new GoogleGenerativeAI("//put your api key right here");
+const genAI = new GoogleGenerativeAI("//put your api key here");
 
 // Função melhorada para classificação de produtos
 export async function classifyProduct(imageBase64: string): Promise<string> {
