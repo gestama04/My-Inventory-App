@@ -14,7 +14,7 @@ import * as Linking from 'expo-linking';
 import * as FileSystem from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
-const genAI = new GoogleGenerativeAI("AIzaSyDuUDSAfqwznlx9XMw-Xea4f0bU-sfe_4k");
+const genAI = new GoogleGenerativeAI("//put your api key right here");
 
 // Função melhorada para classificação de produtos
 export async function classifyProduct(imageBase64: string): Promise<string> {
