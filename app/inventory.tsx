@@ -444,11 +444,11 @@ export default function InventoryScreen() {
   });
   
   return (
-    <KeyboardAvoidingView 
-    behavior={Platform.OS === "ios" ? "padding" : "height"}
-    style={{ flex: 1 }}
-    keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
-    >
+    <KeyboardAvoidingView
+  behavior={Platform.OS === "ios" ? "padding" : "height"} // Use "height" também para Android
+  style={{ flex: 1 }}
+  keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0} // Ajuste este valor conforme necessário
+>
     <View style={[styles.container, currentTheme === "dark" ? styles.dark : styles.light]}>
       <View style={styles.searchContainer}>
         <View style={[
@@ -487,14 +487,16 @@ export default function InventoryScreen() {
     showsHorizontalScrollIndicator={false}
     style={[
       styles.categoriesContainer,
-      keyboardVisible ? { maxHeight: 220 } : {} // Reduzir altura quando teclado está visível
           ]}
           contentContainerStyle={styles.categoriesContent}
-        >
+>
     {/* A-Z (All Items) */}
     <TouchableOpacity
       style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-      onPress={() => handleSetSortType('nameAsc')}
+      onPress={() => {
+        handleSetSortType('nameAsc');
+        setShowFilters(false);
+      }}
     >
       <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
         A-Z
@@ -504,7 +506,10 @@ export default function InventoryScreen() {
     {/* Z-A (All Items) */}
     <TouchableOpacity
       style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-      onPress={() => handleSetSortType('nameDesc')}
+      onPress={() => {
+        handleSetSortType('nameDesc');
+        setShowFilters(false);
+      }}
     >
       <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
         Z-A
@@ -514,7 +519,10 @@ export default function InventoryScreen() {
     {/* Menor Quantidade (All Items) */}
     <TouchableOpacity
       style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-      onPress={() => handleSetSortType('quantityAsc')}
+      onPress={() => {
+        handleSetSortType('quantityAsc');
+        setShowFilters(false);
+      }}
     >
       <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
         Menor Qtd
@@ -524,7 +532,10 @@ export default function InventoryScreen() {
     {/* Maior Quantidade (All Items) */}
     <TouchableOpacity
       style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-      onPress={() => handleSetSortType('quantityDesc')}
+      onPress={() => {
+        handleSetSortType('quantityDesc');
+        setShowFilters(false);
+      }}
     >
       <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
         Maior Qtd
@@ -534,7 +545,10 @@ export default function InventoryScreen() {
     {/* A-Z Categorias */}
     <TouchableOpacity
       style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-      onPress={() => handleSetSortType('categoryAsc')}
+      onPress={() => {
+        handleSetSortType('categoryAsc');
+        setShowFilters(false);
+      }}
     >
       <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
         A-Z Cat
@@ -544,7 +558,10 @@ export default function InventoryScreen() {
     {/* Z-A Categorias */}
     <TouchableOpacity
       style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-      onPress={() => handleSetSortType('categoryDesc')}
+      onPress={() => {
+        handleSetSortType('categoryDesc');
+        setShowFilters(false);
+      }}
     >
       <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
         Z-A Cat
@@ -554,7 +571,10 @@ export default function InventoryScreen() {
     {/* Maior Quantidade por Categoria */}
     <TouchableOpacity
       style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-      onPress={() => handleSetSortType('categoryQuantityDesc')}
+      onPress={() => {
+        handleSetSortType('categoryQuantityDesc');
+        setShowFilters(false);
+      }}
     >
       <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
         Maior Qtd Cat
@@ -564,7 +584,10 @@ export default function InventoryScreen() {
     {/* Menor Quantidade por Categoria */}
     <TouchableOpacity
       style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-      onPress={() => handleSetSortType('categoryQuantityAsc')}
+      onPress={() => {
+        handleSetSortType('categoryQuantityAsc');
+        setShowFilters(false);
+      }}
     >
       <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
         Menor Qtd Cat
@@ -599,10 +622,10 @@ export default function InventoryScreen() {
 {sortType === 'nameAsc' || sortType === 'nameDesc' ||
  sortType === 'quantityAsc' || sortType === 'quantityDesc' ? (
   <FlatList
-  style={{ marginTop: showFilters ? -345 : 0, marginBottom: keyboardVisible ? keyboardHeight - 120 : 0}} // Ajusta a margem apenas quando os filtros estão visíveis
     data={allItemsSorted}
     keyboardShouldPersistTaps="handled"
     keyboardDismissMode="on-drag"
+    contentContainerStyle={{ paddingBottom: 120 }}
     keyExtractor={(item) => `${item.name}-${item.category}`}
     renderItem={({ item }) => (
       <TouchableHighlight
@@ -866,7 +889,8 @@ const styles = StyleSheet.create({
   },
   categoriesContainer: {
     width: '100%',
-    marginBottom: 0,
+    marginBottom: 12, // Add proper margin
+    maxHeight: 110,
   },
   categoriesContent: {
     flexDirection: 'row',
@@ -874,7 +898,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     alignItems: 'center',
     gap: 8,
-    paddingBottom: 5
+    paddingBottom: 24
   },
   categoryChip: {
     paddingHorizontal: 12,
