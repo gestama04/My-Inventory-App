@@ -104,6 +104,23 @@ export default function AddItemScreen() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
 
+// Add this function in your component
+const validateQuantity = (text: string) => {
+  // Remove any non-digit characters
+  const cleanedText = text.replace(/[^0-9]/g, '');
+  
+  // Convert to number and ensure it's not negative
+  const numValue = parseInt(cleanedText);
+  
+  // If it's a valid number, use it; otherwise, use "1" as fallback
+  if (!isNaN(numValue) && numValue >= 0) {
+    setQuantity(cleanedText);
+  } else if (cleanedText === '') {
+    // Allow empty field while typing
+    setQuantity('');
+  }
+};
+
   const cameraRef = React.useRef<CameraView>(null);
 
   const predefinedCategories = [
@@ -231,23 +248,27 @@ export default function AddItemScreen() {
       Alert.alert("Erro", "Por favor, insira um nome e uma categoria.");
       return;
     }
-
+    
+    // Ensure quantity is a valid non-negative integer
+    const quantityNum = parseInt(quantity);
+    const finalQuantity = (!isNaN(quantityNum) && quantityNum >= 0) ? quantity : "1";
+  
     try {
       const storedItems = await AsyncStorage.getItem("inventory");
       const items = storedItems ? JSON.parse(storedItems) : [];
-
+  
       if (!Array.isArray(items)) {
         console.error("Erro: Dados corrompidos no AsyncStorage.");
         Alert.alert("Erro", "Os dados do inventário estão corrompidos.");
         return;
       }
-
+  
       items.push({
         name: item.trim(),
         category: category.trim(),
-        quantity: quantity.trim() || "1"
+        quantity: finalQuantity
       });
-
+  
       await AsyncStorage.setItem("inventory", JSON.stringify(items));
       setItem("");
       setCategory("");
@@ -260,6 +281,7 @@ export default function AddItemScreen() {
       Alert.alert("Erro", "Ocorreu um erro ao salvar o item.");
     }
   };
+  
 
   const getSuggestedCategory = async (itemName: string) => {
     if (!itemName.trim()) return;
@@ -456,15 +478,16 @@ function getLocalCategoryClassification(itemName: string): string {
           </View>
 
           <View style={styles.inputContainer}>
-            <TextInput
-              placeholder="Quantidade..."
-              placeholderTextColor={currentTheme === "dark" ? "#bbb" : "#555"}
-              value={quantity}
-              onChangeText={setQuantity}
-              keyboardType="numeric"
-              style={[styles.input, currentTheme === "dark" ? styles.darkInput : styles.lightInput]}
-            />
-          </View>
+  <TextInput
+    placeholder="Quantidade..."
+    placeholderTextColor={currentTheme === "dark" ? "#bbb" : "#555"}
+    value={quantity}
+    onChangeText={validateQuantity}
+    keyboardType="numeric"
+    style={[styles.input, currentTheme === "dark" ? styles.darkInput : styles.lightInput]}
+  />
+</View>
+
 
           <TouchableOpacity
   style={styles.scanButton}

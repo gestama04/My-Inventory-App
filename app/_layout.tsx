@@ -8,19 +8,19 @@ import { NotificationService } from '../services/notification-service';
 function AppLayout() {
   const { currentTheme } = useTheme();
 
-  // Adicione este useEffect para gerenciar a splash screen nativa e notificações
+  // Gerir apenas a splash screen nativa
   useEffect(() => {
     async function prepare() {
       try {
         // Impede que a splash screen nativa desapareça automaticamente
         await SplashScreen.preventAutoHideAsync();
-        
+       
         // Inicializar o serviço de notificações
         await NotificationService.registerForPushNotificationsAsync();
-        
+       
         // Configurar verificação periódica de stock
         await NotificationService.setupPeriodicStockCheck();
-        
+       
         // Verificar níveis de stock imediatamente
         await NotificationService.checkStockLevels();
       } catch (e) {
@@ -29,7 +29,7 @@ function AppLayout() {
         // Esconde a splash screen nativa após inicializar tudo
         setTimeout(() => {
           SplashScreen.hideAsync();
-        }, 1000); // Ajuste esse tempo conforme necessário
+        }, 3000); // Ajuste esse tempo conforme necessário
       }
     }
 
@@ -39,7 +39,7 @@ function AppLayout() {
   return (
     <View style={[styles.container, currentTheme === "dark" ? styles.dark : styles.light]}>
       <Stack
-        initialRouteName="splash"
+        initialRouteName="index"
         screenOptions={{
           headerStyle: {
             backgroundColor: currentTheme === "dark" ? "#333" : "#fff",
@@ -50,13 +50,6 @@ function AppLayout() {
           },
         }}
       >
-        <Stack.Screen
-          name="splash"
-          options={{
-            headerShown: false,
-            animation: "none"
-          }}
-        />
         <Stack.Screen name="index" options={{ title: "My Inventory App" }} />
         <Stack.Screen name="add" options={{ title: "       Adicionar Item" }} />
         <Stack.Screen name="inventory" options={{ title: "Lista de Itens" }} />

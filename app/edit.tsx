@@ -111,6 +111,24 @@ export default function EditItem() {
   const [scanned, setScanned] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   
+// Add this validation function below your state declarations
+const validateQuantity = (text: string) => {
+  // Remove any non-digit characters
+  const cleanedText = text.replace(/[^0-9]/g, '');
+  
+  // Convert to number and ensure it's not negative
+  const numValue = parseInt(cleanedText);
+  
+  // If it's a valid number, use it; otherwise, keep the current value
+  if (!isNaN(numValue) && numValue >= 0) {
+    setItemQuantity(cleanedText);
+  } else if (cleanedText === '') {
+    // Allow empty field during typing
+    setItemQuantity('');
+  }
+};
+
+
   const cameraRef = useRef<CameraView>(null);
 
   const predefinedCategories = [
@@ -383,15 +401,19 @@ export default function EditItem() {
 
   const handleSave = async () => {
     try {
+      // Ensure quantity is a valid non-negative integer
+      const quantityNum = parseInt(itemQuantity);
+      const finalQuantity = (!isNaN(quantityNum) && quantityNum >= 0) ? itemQuantity : "1";
+  
       const storedItems = await AsyncStorage.getItem("inventory");
       const items: Item[] = storedItems ? JSON.parse(storedItems) : [];
-
+  
       const updatedItems = items.map((item) =>
         item.name === name && item.category === category
-          ? { name: itemName, category: itemCategory, quantity: itemQuantity }
+          ? { name: itemName, category: itemCategory, quantity: finalQuantity }
           : item
       );
-
+  
       await AsyncStorage.setItem("inventory", JSON.stringify(updatedItems));
       Alert.alert("Sucesso", "Item atualizado com sucesso!");
       router.replace("/inventory");
@@ -400,7 +422,7 @@ export default function EditItem() {
       Alert.alert("Erro", "Não foi possível salvar a edição.");
     }
   };
-
+  
   useLayoutEffect(() => {
     navigation.setOptions({
       headerLeft: () => (
@@ -444,15 +466,15 @@ export default function EditItem() {
           </View>
 
           <View style={styles.inputContainer}>
-            <TextInput
-              placeholder="Quantidade..."
-              placeholderTextColor={currentTheme === "dark" ? "#bbb" : "#555"}
-              value={itemQuantity}
-              onChangeText={setItemQuantity}
-              keyboardType="numeric"
-              style={[styles.input, currentTheme === "dark" ? styles.darkInput : styles.lightInput]}
-            />
-          </View>
+  <TextInput
+    placeholder="Quantidade..."
+    placeholderTextColor={currentTheme === "dark" ? "#bbb" : "#555"}
+    value={itemQuantity}
+    onChangeText={validateQuantity}
+    keyboardType="numeric"
+    style={[styles.input, currentTheme === "dark" ? styles.darkInput : styles.lightInput]}
+  />
+</View>
 
           <TouchableOpacity
             style={styles.scanButton}
