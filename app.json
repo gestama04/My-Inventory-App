@@ -1,16 +1,15 @@
 {
   "expo": {
-    "name": "My Inventory App",
+    "name": "My Inventory",
     "slug": "InventoryAppNew",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    
     "scheme": "myapp",
     "splash": {
       "image": "./assets/images/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#3498db"
     },
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -32,13 +31,24 @@
     "plugins": [
       "expo-router",
       [
-          "expo-notifications",
-          {
-            "icon": "./assets/images/notification-icon.png",
-            "color": "#ffffff"
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#ffffff"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 34,
+            "buildToolsVersion": "35.0.0"
           }
-      ]
-
+        }
+      ],
+      "expo-web-browser",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true

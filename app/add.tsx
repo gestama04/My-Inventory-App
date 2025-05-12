@@ -1,5 +1,17 @@
-import React, { useState, useEffect, useLayoutEffect } from "react";
-import { View, TextInput, StyleSheet, Alert, Text, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Image,
+  Dimensions,
+  ActivityIndicator
+} from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "./theme-context";
@@ -10,7 +22,20 @@ import { useNavigation } from '@react-navigation/native';
 import * as Linking from 'expo-linking';
 import * as FileSystem from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import useCustomAlert from '../hooks/useCustomAlert';
+import { addInventoryItem } from '../inventory-service';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db, auth } from '../firebase-config';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
+// Interface para histórico de itens
+interface ItemHistory {
+  name: string;
+  category: string;
+  quantity: string;
+  timestamp: number;
+  action: 'add' | 'edit' | 'remove';
+}
 
 const genAI = new GoogleGenerativeAI("AIzaSyDuUDSAfqwznlx9XMw-Xea4f0bU-sfe_4k");
 
@@ -19,30 +44,30 @@ export async function classifyProduct(imageBase64: string): Promise<string> {
   try {
     // Usando a instância genAI já definida globalmente
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    
+   
     // Instruções mais específicas para o modelo
     const prompt = `
-      Analise esta imagem de um produto e:
-      1. Identifique o tipo de produto com precisão
-      2. Classifique-o numa destas categorias específicas:
-         - Alimentos
-         - Bebidas
-         - Produtos de Higiene
-         - Produtos de Limpeza
-         - Aparelhos Eletrónicos
-         - Roupas
-         - Papelaria
-         - Ferramentas
-         - Outros (especificar)
-      3. Forneça apenas o nome do produto e a categoria, sem texto extra
-      4. Use vocabulário de português de Portugal (PT-PT), não brasileiro (PT-BR)
-      Por exemplo: use "telemóvel" em vez de "celular", "camisola" em vez de "camiseta"
+    Analise esta imagem de um produto e:
+    1. Identifique o tipo de produto com precisão
+    2. Classifique-o na categoria que acha mais apropriada
+    3. Determine a quantidade do produto (número de unidades, peso, volume, etc.)
+    4. Forneça apenas o nome do produto com precisão e a categoria, sem texto extra
+    5. Use vocabulário de português de Portugal (PT-PT), não brasileiro (PT-BR)
+       Por exemplo: use "telemóvel" em vez de "celular", "camisola" em vez de "camiseta"
+    6. IMPORTANTE:
+       - Inclua APENAS unidades de medida (g, kg, ml, L) no NOME do produto
+         Por exemplo: "Pó de Talco 200g" como nome
+       - Para produtos múltiplos, NÃO inclua a quantidade no nome
+         Por exemplo: para 2 cintos, use "Cintos" como nome e "2" como quantidade
+    7. A quantidade deve refletir o número de unidades/itens
+       Por exemplo: "2" para dois cintos, "3" para três camisas
+   
+    Formato da resposta:
+    Nome do produto: [nome sem incluir quantidade de unidades]
+    Categoria: [categoria]
+    Quantidade: [número de unidades]
+  `;
  
-      Formato da resposta:
-      Nome do produto: [nome]
-      Categoria: [categoria]
-    `;
-    
     const result = await model.generateContent([
       prompt,
       {
@@ -52,8 +77,21 @@ export async function classifyProduct(imageBase64: string): Promise<string> {
         }
       }
     ]);
-    
-    return result.response.text();
+ 
+    // Processar a resposta para remover "Outros: " se ainda presente
+    let responseText = result.response.text();
+ 
+    // Verificar se há "Categoria: Outros (" ou "Categoria: Outros:" na resposta
+    const categoryMatch = responseText.match(/Categoria:\s*Outros\s*(?:\(|\:)\s*([^)]+)(?:\))?/i);
+    if (categoryMatch && categoryMatch[1]) {
+      // Substituir "Outros (categoria)" ou "Outros: categoria" por apenas "categoria"
+      responseText = responseText.replace(
+        /Categoria:\s*Outros\s*(?:\(|\:)\s*([^)]+)(?:\))?/i,
+        `Categoria: ${categoryMatch[1]}`
+      );
+    }
+ 
+    return responseText;
   } catch (error) {
     console.error("Erro na classificação:", error);
     return "Não foi possível classificar o produto. Tente novamente.";
@@ -63,7 +101,7 @@ export async function classifyProduct(imageBase64: string): Promise<string> {
 // Função simplificada baseada em regras para classificação
 function getLocalCategoryClassification(itemName: string): string {
   const itemLower = itemName.toLowerCase();
-  
+ 
   // Mapeamento direto de palavras para categorias
   const categoryRules = [
     { keywords: ['escova', 'dente', 'pasta', 'sabonete', 'champô', 'desodorizante'], category: 'Produtos de Higiene' },
@@ -74,20 +112,17 @@ function getLocalCategoryClassification(itemName: string): string {
     { keywords: ['martelo', 'chave', 'serra', 'alicate', 'ferramenta'], category: 'Ferramentas' },
     { keywords: ['caneta', 'lápis', 'caderno', 'papel'], category: 'Papelaria' },
     { keywords: ['telemóvel', 'smartphone', 'telefone'], category: 'Smartphones' },
-    // Adicione mais regras conforme necessário
   ];
-  
+ 
   // Verificar se o nome do item contém alguma das palavras-chave
   for (const rule of categoryRules) {
     if (rule.keywords.some(keyword => itemLower.includes(keyword))) {
       return rule.category;
     }
   }
-  
-  // Se nenhuma regra corresponder, usar a IA como fallback
+ 
   return ""; // Vazio indica que devemos usar a IA
 }
-
 
 export default function AddItemScreen() {
   const [item, setItem] = useState("");
@@ -96,132 +131,208 @@ export default function AddItemScreen() {
   const [usedCategories, setUsedCategories] = useState<string[]>([]);
   const [suggestedCategory, setSuggestedCategory] = useState("");
   const [isCategoryVisible, setIsCategoryVisible] = useState(false);
-  const [typingTimeout, setTypingTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [typingTimeout, setTypingTimeout] = useState<NodeJS.Timeout | number | null>(null);
   const router = useRouter();
   const navigation = useNavigation();
   const { currentTheme } = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
   const [isScanning, setIsScanning] = useState(false);
+  const [scanMode, setScanMode] = useState<'barcode' | 'photo' | 'simple' | null>(null);
   const [scanned, setScanned] = useState(false);
-
-// Add this function in your component
-const validateQuantity = (text: string) => {
-  // Remove any non-digit characters
-  const cleanedText = text.replace(/[^0-9]/g, '');
+  const [isLoading, setIsLoading] = useState(false);
+  const { showAlert, AlertComponent } = useCustomAlert();
+  const [capturedImageBase64, setCapturedImageBase64] = useState("");
+  const scrollViewRef = useRef<KeyboardAwareScrollView>(null);
+  const cameraRef = useRef<CameraView>(null);
   
-  // Convert to number and ensure it's not negative
-  const numValue = parseInt(cleanedText);
+  const { width } = Dimensions.get('window');
   
-  // If it's a valid number, use it; otherwise, use "1" as fallback
-  if (!isNaN(numValue) && numValue >= 0) {
-    setQuantity(cleanedText);
-  } else if (cleanedText === '') {
-    // Allow empty field while typing
-    setQuantity('');
-  }
-};
-
-  const cameraRef = React.useRef<CameraView>(null);
-
   const predefinedCategories = [
     "Roupas", "Smartphones", "Televisões", "Tablets", "Portáteis", "Alimentos", "Objetos", "Ferramentas",
     "Produtos de Higiene", "Acessórios", "Carros", "Videojogos", "Livros", "Móveis", "Eletrodomésticos",
     "Material Escolar", "Decoração", "Brinquedos", "Calçado", "Jardinagem", "Desporto", "Medicamentos",
     "Bebidas", "Música", "Cosméticos", "Papelaria", "Animais"
-  ];  
+  ];
 
+  // Validação de quantidade
+  const validateQuantity = (text: string) => {
+    // Remove caracteres não numéricos
+    const cleanedText = text.replace(/[^0-9]/g, '');
+   
+    // Converte para número e garante que não seja negativo
+    const numValue = parseInt(cleanedText);
+   
+    // Se for um número válido, use-o; caso contrário, mantenha o valor atual
+    if (!isNaN(numValue) && numValue >= 0) {
+      setQuantity(cleanedText);
+    } else if (cleanedText === '') {
+      // Permitir campo vazio durante a digitação
+      setQuantity('');
+    }
+  };
+
+  // Função para capturar foto com alta qualidade
   const handleTakePhoto = async () => {
     if (!cameraRef.current) return;
-   
+    
     try {
-      // Indicar que está processando
       setScanned(true);
       
-      // Adicionar um pequeno atraso antes de capturar a foto (isso pode ajudar)
+      // Adicionar um pequeno atraso antes de capturar a foto
       await new Promise(resolve => setTimeout(resolve, 500));
-     
-      // Capturar foto com options adicionais
+      
+      // Capturar foto com a maior qualidade possível
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7,
+        quality: 1.0, // Máxima qualidade
         skipProcessing: false,
-        exif: false
+        exif: true
       });
       
-      // Verificar se photo é undefined
       if (!photo || !photo.uri) {
-        Alert.alert("Erro", "Não foi possível capturar a imagem.");
+        showAlert("Erro", "Não foi possível capturar a imagem.", [
+          { text: "OK", onPress: () => {} }
+        ]);
         setScanned(false);
         return;
       }
-     
-      // Redimensionar e comprimir a imagem para reduzir tamanho
+      
+      // Redimensionar mantendo boa qualidade
       const manipResult = await manipulateAsync(
         photo.uri,
-        [{ resize: { width: 600 } }],
-        { compress: 0.7, format: SaveFormat.JPEG }
+        [{ resize: { width: 1200 } }], // Resolução maior para melhor qualidade
+        { compress: 0.9, format: SaveFormat.JPEG } // Menos compressão
       );
-     
+      
       // Converter para base64
       const base64 = await FileSystem.readAsStringAsync(manipResult.uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
-     
-      // Fechar câmera e mostrar carregamento
+      
+      // Atualizar estado
+      setCapturedImageBase64(base64);
+      
+      // Fechar câmera
       setIsScanning(false);
-      Alert.alert("A Processar", "A analisar imagem...");
-     
-      // Classificar com IA
-      const result = await classifyProduct(base64);
-     
-      // Extrair nome e categoria do resultado
-      const nameMatch = result.match(/Nome do produto: (.+)/i);
-      const categoryMatch = result.match(/Categoria: (.+)/i);
-     
-      if (nameMatch && categoryMatch) {
-        setItem(nameMatch[1]);
-        setCategory(categoryMatch[1]);
-        Alert.alert("Processamento concluído", result);
-      } else {
-        Alert.alert("Resultado", result);
+      setScanMode(null);
+      
+      // Se estiver no modo de foto com IA, analisar com IA
+      // Se for modo 'simple', apenas salvar a foto sem análise
+      if (scanMode === 'photo') {
+        showAlert("A processar", "A analisar imagem com IA...", [], true);
+        
+        try {
+          const result = await classifyProduct(base64);
+          
+          // Extrair nome, categoria e quantidade do resultado
+          const nameMatch = result.match(/Nome do produto: (.+)/i);
+          const categoryMatch = result.match(/Categoria: (.+)/i);
+          const quantityMatch = result.match(/Quantidade: (.+)/i);
+          
+          if (nameMatch && categoryMatch) {
+            // Extrair o nome do produto
+            let productName = nameMatch[1].trim();
+            
+            // Limpar o nome do produto de qualquer menção a unidades
+            productName = productName.replace(/\d+\s*(unidades|peças|itens|pares)/i, '').trim();
+            
+            // Extrair a quantidade se foi detectada
+            if (quantityMatch && quantityMatch[1]) {
+              const quantityValue = quantityMatch[1].trim();
+              
+              // Verificar se a quantidade contém unidades de peso/volume
+              const hasWeightVolumeUnit = /\d+\s*(g|kg|ml|l|litros?|gramas?|quilos?)/i.test(quantityValue);
+              
+              if (hasWeightVolumeUnit) {
+                // Se tem unidade de peso/volume, incluir no nome do produto
+                if (!productName.includes(quantityValue)) {
+                  productName = `${productName} ${quantityValue}`;
+                }
+                // Definir quantidade como 1
+                setQuantity("1");
+              } else {
+                // Se não tem unidade de peso/volume, extrair apenas o valor numérico para a quantidade
+                const numericValue = quantityValue.match(/^(\d+)/);
+                if (numericValue && numericValue[1]) {
+                  setQuantity(numericValue[1]);
+                } else {
+                  setQuantity("1");
+                }
+              }
+            } else {
+              setQuantity("1");
+            }
+            
+            setItem(productName);
+            setCategory(categoryMatch[1]);
+            
+            showAlert("Análise concluída", result, [
+              { text: "OK", onPress: () => {} }
+            ]);
+          } else {
+            showAlert("Resultado", result, [
+              { text: "OK", onPress: () => {} }
+            ]);
+          }
+        } catch (error) {
+          console.error("Erro na análise com IA:", error);
+          showAlert("Erro", "Não foi possível analisar a imagem com IA.", [
+            { text: "OK", onPress: () => {} }
+          ]);
+        }
       }
-     
+      // Se for modo 'simple', não faz nada aqui - apenas mantém a foto capturada
     } catch (error) {
       console.error("Erro ao processar imagem:", error);
-      Alert.alert("Erro", "Não foi possível processar a imagem.");
+      showAlert("Erro", "Não foi possível processar a imagem.", [
+        { text: "OK", onPress: () => {} }
+      ]);
     } finally {
       setScanned(false);
     }
   };
   
 
-
-
+  // Carregar categorias usadas anteriormente
   useEffect(() => {
     const loadCategories = async () => {
       try {
-        const storedItems = await AsyncStorage.getItem("inventory");
-        const items = storedItems ? JSON.parse(storedItems) : [];
-        if (Array.isArray(items)) {
-          const categoriesFromItems = items.map((it: { category: string }) => it.category);
-          const combinedCategories = Array.from(new Set([...predefinedCategories, ...categoriesFromItems]));
-          setUsedCategories(combinedCategories);
-        }
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+  
+        // Buscar categorias do Firebase
+        const q = query(collection(db, 'inventory'), where('userId', '==', userId));
+        const snapshot = await getDocs(q);
+        
+        const categoriesFromItems: string[] = [];
+        snapshot.forEach((doc) => {
+          const item = doc.data();
+          if (item.category) {
+            categoriesFromItems.push(item.category);
+          }
+        });
+        
+        // Combinar com categorias predefinidas
+        const combinedCategories = Array.from(new Set([...predefinedCategories, ...categoriesFromItems]));
+        setUsedCategories(combinedCategories);
       } catch (error) {
         console.error("Erro ao carregar categorias", error);
       }
     };
+    
     loadCategories();
   }, []);
 
+  // Função para lidar com leitura de código de barras/QR
   const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) => {
     setScanned(true);
     setIsScanning(false);
+    setScanMode(null);
 
     let itemName = data;
-
+    
     // Verifica se é um URL e extrai o nome do domínio
     try {
-      const url = new URL(data);
+            const url = new URL(data);
       const domain = url.hostname.replace('www.', '').split('.')[0];
       itemName = domain.charAt(0).toUpperCase() + domain.slice(1);
     } catch (e) {
@@ -229,86 +340,100 @@ const validateQuantity = (text: string) => {
     }
 
     setItem(itemName);
-
-    Alert.alert(
-      `Código Scaneado`,
+    
+    showAlert(
+      `Código Lido`,
       `Tipo: ${type}\nDados: ${data}`,
       [
-        {
-          text: 'OK',
-          onPress: () => setScanned(false),
-        }
-      ],
-      { cancelable: false }
+        { text: 'OK', onPress: () => setScanned(false) }
+      ]
     );
   };
 
+  // Função para adicionar item ao inventário
   const handleAddItem = async () => {
-    if (item.trim() === "" || category.trim() === "") {
-      Alert.alert("Erro", "Por favor, insira um nome e uma categoria.");
+    // Verificar se o Utilizador está autenticado
+    if (!auth.currentUser) {
+      showAlert("Erro", "Você precisa estar autenticado para adicionar itens.", [
+        { text: "OK", onPress: () => {} }
+      ]);
       return;
     }
     
-    // Ensure quantity is a valid non-negative integer
+    // Verificar se os campos obrigatórios estão preenchidos
+    if (item.trim() === "" || category.trim() === "") {
+      showAlert("Erro", "Por favor, insira um nome e uma categoria.", [
+        { text: "OK", onPress: () => {} }
+      ]);
+      return;
+    }
+    
+    // Garantir que a quantidade seja um número inteiro não negativo válido
     const quantityNum = parseInt(quantity);
     const finalQuantity = (!isNaN(quantityNum) && quantityNum >= 0) ? quantity : "1";
-  
+    
     try {
-      const storedItems = await AsyncStorage.getItem("inventory");
-      const items = storedItems ? JSON.parse(storedItems) : [];
-  
-      if (!Array.isArray(items)) {
-        console.error("Erro: Dados corrompidos no AsyncStorage.");
-        Alert.alert("Erro", "Os dados do inventário estão corrompidos.");
-        return;
-      }
-  
-      items.push({
+      setIsLoading(true);
+      showAlert("A processar", "A guardar item...", [], true);
+      
+      // Criar o novo item
+      const newItem = {
         name: item.trim(),
         category: category.trim(),
-        quantity: finalQuantity
-      });
-  
-      await AsyncStorage.setItem("inventory", JSON.stringify(items));
+        quantity: finalQuantity,
+        description: "" // Inicializar com descrição vazia
+      };
+      
+      // Adicionar ao Firebase usando o serviço
+      await addInventoryItem(newItem, capturedImageBase64);
+      
+      // Limpar os campos após adicionar
       setItem("");
       setCategory("");
       setQuantity("1");
       setSuggestedCategory("");
-      Alert.alert("Sucesso", "Item adicionado com sucesso!");
-      router.replace("/inventory");
+      setCapturedImageBase64("");
+      
+      showAlert("Sucesso", "Item adicionado com sucesso!", [
+        { text: "OK", onPress: () => router.replace("/inventory") }
+      ]);
     } catch (error) {
       console.error("Erro ao salvar item", error);
-      Alert.alert("Erro", "Ocorreu um erro ao salvar o item.");
+      showAlert("Erro", "Ocorreu um erro ao salvar o item.", [
+        { text: "OK", onPress: () => {} }
+      ]);
+    } finally {
+      setIsLoading(false);
     }
   };
-  
 
+  // Obter sugestão de categoria baseada no nome do item
   const getSuggestedCategory = async (itemName: string) => {
     if (!itemName.trim()) return;
-  
-// Primeiro tentar classificação local baseada em regras
-const localCategory = getLocalCategoryClassification(itemName);
-if (localCategory) {
-  setSuggestedCategory(localCategory);
-  // Ainda salvar no cache para uso futuro
-  const cacheKey = `suggestion-${encodeURIComponent(itemName)}`;
-  await AsyncStorage.setItem(cacheKey, localCategory);
-  return;
-}
+    
+    // Primeiro tentar classificação local baseada em regras
+    const localCategory = getLocalCategoryClassification(itemName);
+    if (localCategory) {
+      setSuggestedCategory(localCategory);
+      // Ainda salvar no cache para uso futuro
+      const cacheKey = `suggestion-${encodeURIComponent(itemName)}`;
+      await AsyncStorage.setItem(cacheKey, localCategory);
+      return;
+    }
 
     try {
-      // First check cache
+      // Verificar cache primeiro
       const cacheKey = `suggestion-${encodeURIComponent(itemName)}`;
       const cachedCategory = await AsyncStorage.getItem(cacheKey);
       if (cachedCategory) {
         setSuggestedCategory(cachedCategory);
         return;
       }
-  
-      // If no cache, try AI suggestion with retry logic
+
+      // Se não houver cache, tentar sugestão de IA com lógica de retry
       let attempts = 0;
       const maxAttempts = 3;
-  
+
       while (attempts < maxAttempts) {
         try {
           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -318,31 +443,31 @@ if (localCategory) {
             Classifique o item "${itemName}" em uma destas categorias específicas:
             ${predefinedCategories.join(", ")}
             
-          Use português de Portugal (PT-PT) e não português brasileiro (PT-BR).
+            Use português de Portugal (PT-PT) e não português brasileiro (PT-BR).
             
-             Siga estas regras de classificação:
-              - Escovas de dentes, pastas de dentes, sabonetes, champôs → Produtos de Higiene
-              - Telemóveis, dispositivos eletrónicos → Smartphones ou Eletrónicos
-              - Comidas, frutas, grãos, comestíveis → Alimentos
-              - Água, sumos, refrigerantes, vinhos → Bebidas
-              - Camisolas, t-shirts, calças → Roupas
-              - Sapatos, ténis, botas → Calçado
-              - Chaves, martelos, serras → Ferramentas
-              - Canetas, lápis, cadernos → Material Escolar ou Papelaria
-  
-          Responda apenas com o nome exato da categoria, sem pontuação ou texto adicional.
+            Siga estas regras de classificação:
+            - Escovas de dentes, pastas de dentes, sabonetes, champôs → Produtos de Higiene
+            - Telemóveis, dispositivos eletrónicos → Smartphones ou Eletrónicos
+            - Comidas, frutas, grãos, comestíveis → Alimentos
+            - Água, sumos, refrigerantes, vinhos → Bebidas
+            - Camisolas, t-shirts, calças → Roupas
+            - Sapatos, ténis, botas → Calçado
+            - Chaves, martelos, serras → Ferramentas
+            - Canetas, lápis, cadernos → Material Escolar ou Papelaria
+
+            Responda apenas com o nome exato da categoria, sem pontuação ou texto adicional.
           `;
-  
+
           const result = await model.generateContent(prompt);
           const responseText = result.response.text().trim();
-  
+
           // Verificar se é uma categoria exata
           if (predefinedCategories.includes(responseText)) {
             await AsyncStorage.setItem(cacheKey, responseText);
             setSuggestedCategory(responseText);
             return;
           }
-  
+
           // Mapeamento de palavras-chave para categorias
           const keywordMap = {
             'higiene': 'Produtos de Higiene',
@@ -357,32 +482,32 @@ if (localCategory) {
             'roupa': 'Roupas',
             'sapato': 'Calçado',
             'telefone': 'Smartphones',
-            'celular': 'Smartphones',
+            'telemóvel': 'Smartphones',
             'ferramenta': 'Ferramentas',
             'papel': 'Papelaria',
             'caneta': 'Papelaria'
           };
-  
+
           // Verificar correspondências de palavras-chave
           for (const [keyword, category] of Object.entries(keywordMap)) {
-            if (itemName.toLowerCase().includes(keyword) || 
+            if (itemName.toLowerCase().includes(keyword) ||
                 responseText.toLowerCase().includes(keyword)) {
               await AsyncStorage.setItem(cacheKey, category);
               setSuggestedCategory(category);
               return;
             }
           }
-  
+
           // Buscar a melhor correspondência
           const closestMatch = predefinedCategories.find(cat =>
             cat.toLowerCase().includes(responseText.toLowerCase()) ||
             responseText.toLowerCase().includes(cat.toLowerCase())
           ) || "Objetos"; // Default to "Objetos" if no match
-  
+
           await AsyncStorage.setItem(cacheKey, closestMatch);
           setSuggestedCategory(closestMatch);
           return;
-  
+
         } catch (error) {
           attempts++;
           if (attempts === maxAttempts) {
@@ -391,124 +516,80 @@ if (localCategory) {
           await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
         }
       }
-  
+
     } catch (error) {
       console.error("Erro ao obter sugestão da IA:", error);
       setSuggestedCategory("Objetos");
     }
   };
-  
-// Adicione esta função no início do seu componente (após as declarações de estado)
-function getLocalCategoryClassification(itemName: string): string {
-  const itemLower = itemName.toLowerCase();
-  
-  // Mapeamento direto de palavras para categorias
-  const categoryRules = [
-    { keywords: ['escova', 'dente', 'pasta', 'sabonete', 'shampoo', 'desodorante'], category: 'Produtos de Higiene' },
-    { keywords: ['comida', 'alimento', 'fruta', 'carne', 'legume', 'cereal'], category: 'Alimentos' },
-    { keywords: ['água', 'refrigerante', 'suco', 'cerveja', 'vinho', 'café'], category: 'Bebidas' },
-    { keywords: ['camisa', 'calça', 'vestido', 'casaco', 'blusa'], category: 'Roupas' },
-    { keywords: ['sapato', 'tênis', 'bota', 'calçado'], category: 'Calçado' },
-    { keywords: ['martelo', 'chave', 'serra', 'alicate', 'ferramenta'], category: 'Ferramentas' },
-    { keywords: ['caneta', 'lápis', 'caderno', 'papel'], category: 'Papelaria' },
-    { keywords: ['celular', 'smartphone', 'telefone'], category: 'Smartphones' },
-  ];
-  
-  // Verificar se o nome do item contém alguma das palavras-chave
-  for (const rule of categoryRules) {
-    if (rule.keywords.some(keyword => itemLower.includes(keyword))) {
-      return rule.category;
-    }
-  }
-  
-  return ""; // Vazio indica que devemos usar a IA
-}
 
-
+  // Efeito para obter sugestão de categoria quando o nome do item muda
   useEffect(() => {
     if (typingTimeout) clearTimeout(typingTimeout);
-
+  
     const timeout = setTimeout(() => {
       getSuggestedCategory(item);
     }, 1000);
-
+  
     setTypingTimeout(timeout);
   }, [item]);
 
+  // Configurar o botão de voltar na barra de navegação
   useLayoutEffect(() => {
     navigation.setOptions({
       headerLeft: () => (
         <TouchableOpacity onPress={() => router.replace("/inventory")}>
-          <Ionicons 
-            name="arrow-back" 
-            size={24} 
-            color={currentTheme === "dark" ? "white" : "black"} 
+          <Ionicons
+            name="arrow-back"
+            size={24}
+            color={currentTheme === "dark" ? "white" : "black"}
           />
         </TouchableOpacity>
       ),
     });
   }, [navigation, router, currentTheme]);
-  
-  return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardAvoiding}>
-      <ScrollView contentContainerStyle={styles.scrollView}>
-        <View style={[styles.container, currentTheme === "dark" ? styles.dark : styles.light]}>
-          <Text style={[styles.title, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-            Adicionar
-          </Text>
 
-          <View style={styles.inputContainer}>
-            <TextInput
-              placeholder="Nome do item..."
-              placeholderTextColor={currentTheme === "dark" ? "#bbb" : "#555"}
-              value={item}
-              onChangeText={setItem}
-              style={[styles.input, currentTheme === "dark" ? styles.darkInput : styles.lightInput]}
-            />
-          </View>
-
-          <View style={styles.inputContainer}>
-            <TextInput
-              placeholder="Categoria..."
-              placeholderTextColor={currentTheme === "dark" ? "#bbb" : "#555"}
-              value={category}
-              onChangeText={setCategory}
-              style={[styles.input, currentTheme === "dark" ? styles.darkInput : styles.lightInput]}
-            />
-          </View>
-
-          <View style={styles.inputContainer}>
-  <TextInput
-    placeholder="Quantidade..."
-    placeholderTextColor={currentTheme === "dark" ? "#bbb" : "#555"}
-    value={quantity}
-    onChangeText={validateQuantity}
-    keyboardType="numeric"
-    style={[styles.input, currentTheme === "dark" ? styles.darkInput : styles.lightInput]}
-  />
-</View>
-
-
-          <TouchableOpacity
-  style={styles.scanButton}
-  onPress={async () => {
-    // Verificar se já tem permissão
+  const takePlainPhoto = async () => {
+    // Verificar permissão da câmera
     if (!permission?.granted) {
-      // Solicitar permissão se não tiver
       const { status } = await requestPermission();
       
       if (status !== 'granted') {
-        Alert.alert(
+        showAlert("Permissão necessária",
+          "A app necessita de acesso à câmera. Por favor, conceda a permissão nas definições do seu dispositivo.", [
+          { text: "Definições", onPress: () => Linking.openSettings() },
+          { text: "Cancelar", style: "cancel", onPress: () => {} }
+        ]);
+        return;
+      }
+    }
+    
+    // Abrir câmera em modo simples sem análise de IA
+    setIsScanning(true);
+    // Usar um modo diferente para identificar que é uma foto simples
+    setScanMode('simple');
+  }
+  
+  // Função para abrir a câmera com permissão
+  const openCamera = async (mode: 'barcode' | 'photo'| 'simple') => {
+    // Check if already has permission
+    if (!permission?.granted) {
+      // Request permission if not
+      const { status } = await requestPermission();
+      
+      if (status !== 'granted') {
+        showAlert(
           "Permissão necessária",
-          "A app necessita de acesso à câmera para ler os códigos. Por favor, conceda a permissão nas definições do seu dispositivo.",
+          "A app necessita de acesso à câmera. Por favor, conceda a permissão nas definições do seu dispositivo.",
           [
-            { 
-              text: "Definições", 
-              onPress: () => Linking.openSettings() 
+            {
+              text: "Definições",
+              onPress: () => Linking.openSettings()
             },
-            { 
-              text: "Cancelar", 
-              style: "cancel" 
+            {
+              text: "Cancelar",
+              style: "cancel",
+              onPress: () => {}
             }
           ]
         );
@@ -516,91 +597,295 @@ function getLocalCategoryClassification(itemName: string): string {
       }
     }
     
-    // Se tem permissão, abrir scanner
+    // If has permission, open scanner in specified mode
+    setScanMode(mode);
     setIsScanning(true);
-  }}
-          ><Text style={styles.addButtonText}>Ler</Text>
-            <Ionicons name="qr-code-outline" size={20} color="white" style={styles.scanButtonIcon} />
-            <Ionicons name="barcode-outline" size={24} color="white" style={styles.scanButtonIcon} />
-          </TouchableOpacity>
+  };
+  
 
-          {suggestedCategory !== "" && (
-            <TouchableOpacity style={styles.suggestionButton} onPress={() => setCategory(suggestedCategory)}>
-              <Text style={styles.suggestionText}>Sugestão IA: {suggestedCategory}</Text>
-            </TouchableOpacity>
-          )}
-
-          <View style={[styles.categoryContainer, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}>
-            <TouchableOpacity
-              onPress={() => setIsCategoryVisible(!isCategoryVisible)}
-              style={styles.categoryHeader}
-            >
-              <Text style={[styles.categoryDropdownText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                {isCategoryVisible ? "▼ Categorias" : "▶ Categorias"}
-              </Text>
-            </TouchableOpacity>
-            
-            {isCategoryVisible && (
-              <ScrollView style={styles.categoryList} nestedScrollEnabled={true}>
-                {usedCategories.map((cat) => (
-                  <TouchableOpacity
-                    key={cat}
-                    style={styles.categoryItem}
-                    onPress={() => {
-                      setCategory(cat);
-                      setIsCategoryVisible(false);
-                    }}
-                  >
-                    <Text style={[styles.categoryItemText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                      {cat}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-          </View>
-          
-          <TouchableOpacity style={styles.addButton} onPress={handleAddItem}>
-            <Text style={styles.addButtonText}>Guardar</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-
-      {isScanning && (
-  <View style={styles.scannerContainer}>
-    <CameraView
-      style={styles.camera}
-      onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-      ref={cameraRef}
-    >
-      <View style={styles.layerContainer}>
-        <View style={styles.layerTop} />
-        <View style={styles.layerCenter}>
-          <View style={styles.layerLeft} />
-          <View style={styles.focused} />
-          <View style={styles.layerRight} />
-        </View>
-        <View style={styles.layerBottom} />
-      </View>
-      
-      <TouchableOpacity
-        style={styles.captureButton}
-        onPress={handleTakePhoto}
+ return (
+    <View style={{ flex: 1 }}>
+      <KeyboardAwareScrollView
+        contentContainerStyle={styles.scrollView}
+        enableOnAndroid={true}
+        enableAutomaticScroll={true}
+        keyboardShouldPersistTaps="handled"
+        extraScrollHeight={Platform.OS === 'ios' ? 120 : 80} // Provides extra space below keyboard
+        showsVerticalScrollIndicator={true}
+        ref={scrollViewRef}
       >
-        <Ionicons name="camera" size={30} color="white" />
-      </TouchableOpacity>
-    </CameraView>
-    
+        <View style={[
+          styles.container,
+          currentTheme === "dark" ? styles.dark : styles.light
+        ]}>
+          
+          
+          {/* Seção de imagem */}
+          {capturedImageBase64 ? (
+  <View style={styles.imagePreviewContainer}>
+    <Image
+      source={{ uri: `data:image/jpeg;base64,${capturedImageBase64}` }}
+      style={styles.imagePreview}
+      resizeMode="contain"
+    />
     <TouchableOpacity
-      style={styles.closeButton}
-      onPress={() => setIsScanning(false)}
+      style={styles.removeImageButton}
+      onPress={() => setCapturedImageBase64("")}
     >
-      <Text style={styles.closeButtonText}>Fechar</Text>
+      <Ionicons name="close-circle" size={24} color="white" />
     </TouchableOpacity>
   </View>
+) : (
+  <TouchableOpacity
+    style={[
+      styles.noImageContainer,
+      currentTheme === "dark" ? { backgroundColor: '#333' } : { backgroundColor: '#f0f0f0' }
+    ]}
+    onPress={takePlainPhoto}
+  >
+    <Ionicons
+      name="camera-outline"
+      size={50}
+      color={currentTheme === "dark" ? "#666" : "#ccc"}
+    />
+    <Text style={[
+      styles.noImageText,
+      currentTheme === "dark" ? styles.darkText : styles.lightText
+    ]}>
+      Adicionar Fotografia
+    </Text>
+  </TouchableOpacity>
 )}
 
-    </KeyboardAvoidingView>
+          
+{/* Botões de câmera */}
+<View style={styles.cameraButtonsContainer}>
+  <TouchableOpacity
+    style={[styles.cameraButton, styles.aiButton]}
+    onPress={() => openCamera('photo')}
+  >
+    <Ionicons name="flash" size={22} color="white" style={styles.buttonIcon} />
+    <Text style={styles.buttonText}>Analisar com IA</Text>
+  </TouchableOpacity>
+   
+  <TouchableOpacity
+    style={[styles.cameraButton, styles.barcodeButton]}
+    onPress={() => openCamera('barcode')}
+  >
+    <View style={styles.iconContainer}>
+  <Text style={styles.buttonText}>Ler  </Text>
+  <View style={styles.iconGroup}>
+    <Ionicons name="barcode-outline" size={22} color="white" />
+    <Text style={styles.iconSeparator}>/</Text>
+    <Ionicons name="qr-code-outline" size={19} color="white" />
+  </View>
+</View>
+
+  </TouchableOpacity>
+</View>
+
+
+
+          
+          {/* Campos de entrada */}
+          <View style={styles.formContainer}>
+            <View style={styles.inputGroup}>
+              <Text style={[
+                styles.inputLabel,
+                currentTheme === "dark" ? styles.darkText : styles.lightText
+              ]}>
+                Nome
+              </Text>
+              <View style={styles.inputContainer}>
+                <TextInput
+                  placeholder="Nome do produto..."
+                  placeholderTextColor={currentTheme === "dark" ? "#bbb" : "#999"}
+                  value={item}
+                  onChangeText={setItem}
+                  style={[
+                    styles.input, 
+                    currentTheme === "dark" ? styles.darkInput : styles.lightInput
+                  ]}
+                />
+              </View>
+            </View>
+            
+<View style={styles.inputGroup}>
+  <Text style={[
+    styles.inputLabel,
+    currentTheme === "dark" ? styles.darkText : styles.lightText
+  ]}>
+    Categoria
+  </Text>
+  <View style={styles.categoryInputContainer}>
+    <TextInput
+      placeholder="Categoria..."
+      placeholderTextColor={currentTheme === "dark" ? "#bbb" : "#999"}
+      value={category}
+      onChangeText={setCategory}
+      style={[
+        styles.input,
+        styles.categoryInput,
+        currentTheme === "dark" ? styles.darkInput : styles.lightInput
+      ]}
+    />
+    <TouchableOpacity
+      style={styles.dropdownIcon}
+      onPress={() => setIsCategoryVisible(!isCategoryVisible)}
+    >
+      <Ionicons
+        name={isCategoryVisible ? "chevron-up" : "chevron-down"}
+        size={24}
+        color={currentTheme === "dark" ? "#fff" : "#555"}
+      />
+    </TouchableOpacity>
+    
+    {isCategoryVisible && (
+      <View style={[
+        styles.categoryDropdown,
+        currentTheme === "dark" ? styles.darkCard : styles.lightCard
+      ]}>
+        <ScrollView
+          style={styles.categoryList}
+          nestedScrollEnabled={true}
+        >
+          {usedCategories.map((cat) => (
+            <TouchableOpacity
+              key={cat}
+              style={[
+                styles.categoryItem,
+                currentTheme === "dark" ? styles.darkCategoryItem : styles.lightCategoryItem
+              ]}
+              onPress={() => {
+                setCategory(cat);
+                setIsCategoryVisible(false);
+              }}
+            >
+              <Text style={[
+                styles.categoryItemText,
+                currentTheme === "dark" ? styles.darkText : styles.lightText
+              ]}>
+                {cat}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    )}
+  
+  {suggestedCategory !== "" && (
+    <TouchableOpacity
+      style={styles.suggestionButton}
+      onPress={() => setCategory(suggestedCategory)}
+    >
+      <Text style={styles.suggestionText}>
+        Sugestão IA: {suggestedCategory}
+      </Text>
+    </TouchableOpacity>
+  )}
+</View>
+
+            </View>
+            
+            <View style={styles.inputGroup}>
+              <Text style={[
+                styles.inputLabel,
+                currentTheme === "dark" ? styles.darkText : styles.lightText
+              ]}>
+                Quantidade
+              </Text>
+              <View style={styles.inputContainer}>
+                <TextInput
+                  placeholder="Quantidade..."
+                  placeholderTextColor={currentTheme === "dark" ? "#bbb" : "#999"}
+                  value={quantity}
+                  onChangeText={validateQuantity}
+                  keyboardType="numeric"
+                  style={[
+                    styles.input, 
+                    currentTheme === "dark" ? styles.darkInput : styles.lightInput
+                  ]}
+                />
+              </View>
+            </View>
+            
+          </View>
+          
+          {/* Botão de salvar */}
+          <TouchableOpacity 
+            style={styles.saveButton} 
+            onPress={handleAddItem}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="save-outline" size={22} color="white" style={styles.buttonIcon} />
+                <Text style={styles.saveButtonText}>Guardar</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </KeyboardAwareScrollView>
+      
+      {/* Câmera para leitura de código ou captura de foto */}
+      {isScanning && (
+        <View style={styles.scannerContainer}>
+          <CameraView
+            style={styles.camera}
+            onBarcodeScanned={scanMode === 'barcode' && !scanned ? handleBarCodeScanned : undefined}
+            ref={cameraRef}
+          >
+            {scanMode === 'barcode' ? (
+              <View style={styles.layerContainer}>
+                <View style={styles.layerTop} />
+                <View style={styles.layerCenter}>
+                  <View style={styles.layerLeft} />
+                  <View style={styles.focused} />
+                  <View style={styles.layerRight} />
+                </View>
+                <View style={styles.layerBottom} />
+              </View>
+            ) : (
+              <View style={styles.photoGuideContainer}>
+                <View style={styles.photoGuide} />
+              </View>
+            )}
+            
+            <View style={styles.cameraControls}>
+              <TouchableOpacity
+                style={styles.captureButton}
+                onPress={handleTakePhoto}
+                disabled={scanned}
+              >
+                <View style={styles.captureButtonInner} />
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => {
+                  setIsScanning(false);
+                  setScanMode(null);
+                }}
+              >
+                <Ionicons name="close" size={28} color="white" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.cameraInstructions}>
+              <Text style={styles.cameraInstructionsText}>
+                {scanMode === 'barcode' 
+                  ? 'Posicione o código de barras ou QR code na área destacada' 
+                  : 'Posicione o produto no centro do ecrã'}
+              </Text>
+            </View>
+          </CameraView>
+        </View>
+      )}
+      
+      <AlertComponent />
+    </View>
   );
 }
 
@@ -614,109 +899,256 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    justifyContent: "center",
-    alignItems: "center",
+  },
+  dark: {
+    backgroundColor: "#111",
+  },
+  light: {
+    backgroundColor: "#f8f8f8",
+  },
+  darkText: {
+    color: "#fff",
+  },
+  lightText: {
+    color: "#333",
   },
   title: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: "bold",
+    marginBottom: 24,
+    textAlign: "center",
+  },
+  
+  // Seção de imagem
+  imageSection: {
+    width: '100%',
+    height: 200,
     marginBottom: 20,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  imagePreviewContainer: {
+    width: '100%',
+    height: 200,
+    position: 'relative',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 20,
+    padding: 6,
+  },
+  noImageContainer: {
+    width: '100%',
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  noImageText: {
+    marginTop: 10,
+    fontSize: 16,
+    opacity: 0.7,
+  },
+  
+  // Botões de câmera
+  cameraButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  cameraButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    flex: 1,
+    marginHorizontal: 5,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  aiButton: {
+    backgroundColor: '#6200ee',
+  },
+  barcodeButton: {
+    backgroundColor: '#F57C00',
+  },
+  buttonIcon: {
+    marginRight: 8,
+  },
+  
+  // Formulário
+  formContainer: {
+    marginBottom: 24,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
   },
   inputContainer: {
     width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    position: 'relative',
   },
   input: {
-    flex: 1,
-    height: 40,
-    borderColor: "#ccc",
+    height: 50,
     borderWidth: 1,
-    borderRadius: 8,
-    paddingLeft: 10,
-    paddingRight: 40,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    fontSize: 16,
   },
   darkInput: {
-    backgroundColor: "#444",
+    backgroundColor: "#333",
     color: "#fff",
+    borderColor: "#555",
   },
   lightInput: {
     backgroundColor: "#fff",
     color: "#333",
+    borderColor: "#ddd",
   },
-  categoryContainer: {
-    width: '55%',
+  
+  // Sugestão de categoria
+  suggestionButton: {
+    marginTop: 8,
+    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     borderRadius: 8,
-    marginBottom: 10,
+    alignSelf: 'flex-start',
+  },
+  suggestionText: {
+    color: '#2196F3',
+    fontSize: 14,
+  },
+  photoButton: {
+    backgroundColor: '#9C27B0', // Purple color to differentiate
+  },
+  
+  // Seletor de categorias
+  categoryContainer: {
+    borderRadius: 10,
+    marginTop: 8,
+    marginBottom: 16,
     overflow: 'hidden',
   },
+  darkCard: {
+    backgroundColor: "#222",
+  },
+  lightCard: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#eee",
+  },
   categoryHeader: {
-    padding: 10,
-    alignItems: 'center',
+    padding: 16,
+  },
+  categoryHeaderText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   categoryList: {
     maxHeight: 200,
   },
   categoryItem: {
-    padding: 10,
+    padding: 14,
     borderTopWidth: 1,
-    borderTopColor: '#ddd',
-    alignItems: 'center',
+  },
+  darkCategoryItem: {
+    borderTopColor: '#333',
+  },
+  lightCategoryItem: {
+    borderTopColor: '#eee',
   },
   categoryItemText: {
-    fontSize: 16,
+    fontSize: 15,
   },
-  categoryDropdownText: {
-    fontSize: 16,
+  categoryInputContainer: {
+    position: 'relative',
+    width: '100%',
   },
-  addButton: {
-    backgroundColor: "#4CAF50",
-    padding: 15,
-    borderRadius: 8,
-    width: "44%",
-    alignItems: "center",
-    marginTop: 20,
+  categoryInput: {
+    paddingRight: 40, // Espaço para o ícone de dropdown
   },
-  addButtonText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "bold",
+  dropdownIcon: {
+    position: 'absolute',
+    right: 12,
+    top: 13,
+    zIndex: 10,
   },
-  suggestionButton: {
-    backgroundColor: "#f0f0f0",
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 10,
+  categoryDropdown: {
+    position: 'absolute',
+    top: 55, // Posicionado logo abaixo do input
+    left: 0,
+    right: 0,
+    borderRadius: 10,
+    maxHeight: 200,
+    zIndex: 1000,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
   },
-  suggestionText: {
-    fontSize: 14,
-    color: "#333",
-  },
-  scanButton: {
-    backgroundColor: "#007AFF",
-    padding: 15,
-    borderRadius: 8,
-    width: "36%",
-    alignItems: "center",
-    marginBottom: 10,
+  // Botão de salvar
+  saveButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 16,
+    borderRadius: 10,
     flexDirection: 'row',
     justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
   },
-  scanButtonIcon: {
-    marginRight: 0,
-    marginLeft: 6,
+  saveButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
-  captureButton: {
-    position: 'absolute',
-    bottom: 40,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 30,
-    padding: 15,
+  iconContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+   iconGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   
+  iconSeparator: {
+    color: 'white',
+    fontSize: 14,
+    marginHorizontal: 2,
+  },
+  // Câmera
   scannerContainer: {
     position: 'absolute',
     top: 0,
@@ -738,6 +1170,7 @@ const styles = StyleSheet.create({
   },
   layerCenter: {
     flexDirection: 'row',
+    height: 200,
   },
   layerLeft: {
     flex: 1,
@@ -747,7 +1180,7 @@ const styles = StyleSheet.create({
     width: 200,
     height: 200,
     borderWidth: 2,
-    borderColor: '#00FF00',
+    borderColor: '#4CAF50',
   },
   layerRight: {
     flex: 1,
@@ -757,34 +1190,68 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
+  photoGuideContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoGuide: {
+    width: 280,
+    height: 280,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    borderRadius: 10,
+    backgroundColor: 'transparent',
+  },
+  cameraControls: {
+    position: 'absolute',
+    bottom: 30,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  captureButton: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  captureButtonInner: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: 'white',
+  },
   closeButton: {
     position: 'absolute',
-    top: 40,
     right: 20,
-    padding: 10,
-    backgroundColor: 'white',
-    borderRadius: 5,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  closeButtonText: {
-    color: 'black',
-    fontSize: 16,
+  cameraInstructions: {
+    position: 'absolute',
+    bottom: 120,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
-  dark: {
-    backgroundColor: "#222",
-  },
-  light: {
-    backgroundColor: "#f9f9f9",
-  },
-  darkText: {
-    color: "#fff",
-  },
-  lightText: {
-    color: "#333",
-  },
-  darkButton: {
-    backgroundColor: "#333",
-  },
-  lightButton: {
-    backgroundColor: "#eee",
-  },
+  cameraInstructionsText: {
+    color: 'white',
+    fontSize: 14,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    textAlign: 'center',
+    overflow: 'hidden',
+  }
 });
+
