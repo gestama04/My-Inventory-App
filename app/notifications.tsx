@@ -199,88 +199,98 @@ const formatNotificationTimestamp = (timestamp: any): string => {
   }
 };
 
-  const generateNotifications = async (lowStock: InventoryItem[], outOfStock: InventoryItem[]) => {
-    if (!currentUser) return;
-    
-    try {
-      console.log(`Gerando notificações para ${lowStock.length} itens com stock baixo e ${outOfStock.length} itens sem stock`);
-      
-      // Verificar se já existem notificações para estes itens
-      const notificationsRef = collection(db, 'notifications');
-      
-      // Gerar notificação para itens com stock baixo
-      if (lowStock.length > 0) {
-        // Obter IDs dos itens com stock baixo
-        const lowStockIds = lowStock.map(item => item.id).filter(id => id !== undefined) as string[];
-        
-        // Verificar se já existe uma notificação recente para estes itens
-        const existingLowStockQuery = query(
-          notificationsRef,
-          where('userId', '==', currentUser.uid),
-          where('title', '==', 'Alerta de Stock Baixo'),
-          where('read', '==', false)
-        );
-        
-        const existingLowStockSnapshot = await getDocs(existingLowStockQuery);
-        
-        // Se não existir notificação não lida, criar uma nova
-        if (existingLowStockSnapshot.empty) {
-          await addDoc(notificationsRef, {
-            userId: currentUser.uid,
-            title: 'Alerta de Stock Baixo',
-            message: `${lowStock.length} ${lowStock.length === 1 ? 'item' : 'itens'} com stock baixo`,
-            timestamp: serverTimestamp(),
-            read: false,
-            itemIds: lowStockIds
-          });
-          
-          // Enviar notificação push
-          NotificationService.sendLocalNotification(
-            'Alerta de Stock Baixo',
-            `${lowStock.length} ${lowStock.length === 1 ? 'item' : 'itens'} com stock baixo`,
-            'low-stock'
-          );
-        }
+const generateNotifications = async (lowStock: InventoryItem[], outOfStock: InventoryItem[]) => {
+  if (!currentUser) return;
+
+  try {
+    // Agrupar por nome de produto
+    const uniqueLowStockProducts = new Map();
+    const uniqueOutOfStockProducts = new Map();
+
+    // Agrupar produtos com stock baixo
+    lowStock.forEach(item => {
+      if (!uniqueLowStockProducts.has(item.name)) {
+        uniqueLowStockProducts.set(item.name, item);
       }
-      
-      // Gerar notificação para itens sem stock
-      if (outOfStock.length > 0) {
-        // Obter IDs dos itens sem stock
-        const outOfStockIds = outOfStock.map(item => item.id).filter(id => id !== undefined) as string[];
-        
-        // Verificar se já existe uma notificação recente para estes itens
-        const existingOutOfStockQuery = query(
-          notificationsRef,
-          where('userId', '==', currentUser.uid),
-          where('title', '==', 'Alerta de Falta de Stock'),
-          where('read', '==', false)
-        );
-        
-        const existingOutOfStockSnapshot = await getDocs(existingOutOfStockQuery);
-        
-        // Se não existir notificação não lida, criar uma nova
-        if (existingOutOfStockSnapshot.empty) {
-          await addDoc(notificationsRef, {
-            userId: currentUser.uid,
-            title: 'Alerta de Falta de Stock',
-            message: `${outOfStock.length} ${outOfStock.length === 1 ? 'item' : 'itens'} sem stock`,
-            timestamp: serverTimestamp(),
-            read: false,
-            itemIds: outOfStockIds
-          });
-          
-          // Enviar notificação push
-          NotificationService.sendLocalNotification(
-            'Alerta de Falta de Stock',
-            `${outOfStock.length} ${outOfStock.length === 1 ? 'item' : 'itens'} sem stock`,
-            'out-of-stock'
-          );
-        }
+    });
+
+    // Agrupar produtos sem stock
+    outOfStock.forEach(item => {
+      if (!uniqueOutOfStockProducts.has(item.name)) {
+        uniqueOutOfStockProducts.set(item.name, item);
       }
-    } catch (error) {
-      console.error('Erro ao gerar notificações:', error);
+    });
+
+    const notificationsRef = collection(db, 'notifications');
+
+    // Notificações de stock baixo
+    if (lowStock.length > 0) {
+      const lowStockIds = Array.from(uniqueLowStockProducts.values())
+        .map(item => item.id)
+        .filter(id => id !== undefined) as string[];
+
+      const existingLowStockQuery = query(
+        notificationsRef,
+        where('userId', '==', currentUser.uid),
+        where('title', '==', 'Alerta de Stock Baixo'),
+        where('read', '==', false)
+      );
+
+      const existingLowStockSnapshot = await getDocs(existingLowStockQuery);
+
+      if (existingLowStockSnapshot.empty) {
+        await addDoc(notificationsRef, {
+          userId: currentUser.uid,
+          title: 'Alerta de Stock Baixo',
+          message: `${uniqueLowStockProducts.size} ${uniqueLowStockProducts.size === 1 ? 'produto' : 'produtos'} com stock baixo`,
+          timestamp: serverTimestamp(),
+          read: false,
+          itemIds: lowStockIds
+        });
+
+        // Enviar notificação local
+        await NotificationService.sendLocalNotification(
+          'Alerta de Stock Baixo',
+          `${uniqueLowStockProducts.size} ${uniqueLowStockProducts.size === 1 ? 'produto' : 'produtos'} com stock baixo`,
+          'low-stock'
+        );
+      }
     }
-  };
+
+    // Para itens sem stock, fazer a mesma alteração
+    if (outOfStock.length > 0) {
+      const outOfStockIds = outOfStock.map(item => item.id).filter(id => id !== undefined) as string[];
+
+      const existingOutOfStockQuery = query(
+        notificationsRef,
+        where('userId', '==', currentUser.uid),
+        where('title', '==', 'Alerta de Falta de Stock'),
+        where('read', '==', false)
+      );
+
+      const existingOutOfStockSnapshot = await getDocs(existingOutOfStockQuery);
+
+      if (existingOutOfStockSnapshot.empty) {
+        await addDoc(notificationsRef, {
+          userId: currentUser.uid,
+          title: 'Alerta de Falta de Stock',
+          message: `${uniqueOutOfStockProducts.size} ${uniqueOutOfStockProducts.size === 1 ? 'produto' : 'produtos'} sem stock`,
+          timestamp: serverTimestamp(),
+          read: false,
+          itemIds: outOfStockIds
+        });
+
+        NotificationService.sendLocalNotification(
+          'Alerta de Falta de Stock',
+          `${uniqueOutOfStockProducts.size} ${uniqueOutOfStockProducts.size === 1 ? 'produto' : 'produtos'} sem stock`,
+          'out-of-stock'
+        );
+      }
+    }
+  } catch (error) {
+    console.error('Erro ao gerar notificações:', error);
+  }
+};
   
 
   const markAsRead = async (id: string) => {

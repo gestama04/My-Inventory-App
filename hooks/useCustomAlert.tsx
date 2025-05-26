@@ -3,10 +3,11 @@ import CustomAlert from '../components/CustomAlert';
 
 interface AlertButton {
   text: string;
-  onPress: () => void;
   style?: 'default' | 'cancel' | 'destructive';
+  onPress: (inputValue?: string) => void;  // Make inputValue optional
+  inputType?: 'text' | 'numeric';
+  defaultValue?: string;
 }
-
 const useCustomAlert = () => {
   const [visible, setVisible] = useState(false);
   const [title, setTitle] = useState('');

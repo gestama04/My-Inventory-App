@@ -83,16 +83,38 @@ export const getInventoryItems = (callback: (items: InventoryItem[]) => void) =>
       (snapshot) => {
         const items: InventoryItem[] = [];
         snapshot.forEach((doc) => {
-          items.push({ id: doc.id, ...doc.data() } as InventoryItem);
+          // Certifique-se de que todos os campos necessários estão presentes
+          const data = doc.data();
+          items.push({ 
+            id: doc.id, 
+            name: data.name || '',
+            quantity: data.quantity || 0,
+            category: data.category || '',
+            lowStockThreshold: data.lowStockThreshold,
+            photoUrl: data.photoUrl,
+            photo: data.photo,
+            description: data.description,
+            price: data.price,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+            userId: data.userId
+          } as InventoryItem);
         });
-        callback(items);
+        
+        // Consolidar itens com o mesmo nome e categoria
+        const combinedItems = combineItems(items);
+        
+        // Retornar os itens combinados
+        callback(combinedItems);
       },
       (error) => {
         console.error('Erro ao observar itens:', error);
         // Tentar carregar do cache local em caso de erro
         loadItemsFromCache().then(cachedItems => {
           if (cachedItems.length > 0) {
-            callback(cachedItems);
+            // Consolidar os itens do cache também
+            const combinedCachedItems = combineItems(cachedItems);
+            callback(combinedCachedItems);
           }
         });
       }
@@ -107,12 +129,13 @@ export const getInventoryItems = (callback: (items: InventoryItem[]) => void) =>
 };
 
 
-// Função auxiliar para carregar itens do cache
 const loadItemsFromCache = async (): Promise<InventoryItem[]> => {
   try {
     const cachedItems = await AsyncStorage.getItem('cachedInventory');
     if (cachedItems) {
-      return JSON.parse(cachedItems);
+      const items = JSON.parse(cachedItems);
+      // Consolidar os itens do cache
+      return combineItems(items);
     }
     return [];
   } catch (error) {
@@ -237,7 +260,36 @@ export const getInventoryItem = async (itemId: string) => {
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
-      return { id: docSnap.id, ...docSnap.data() } as InventoryItem;
+      const item = { id: docSnap.id, ...docSnap.data() } as InventoryItem;
+      
+      // Buscar todos os itens com o mesmo nome e categoria para combinar as quantidades
+      const userId = auth.currentUser?.uid;
+      if (userId) {
+        const q = query(
+          collection(db, 'inventory'),
+          where('userId', '==', userId),
+          where('name', '==', item.name),
+          where('category', '==', item.category || '')
+        );
+        
+        const snapshot = await getDocs(q);
+        
+        // Se encontramos mais de um item, combinar as quantidades
+        if (snapshot.size > 1) {
+          let totalQuantity = 0;
+          snapshot.forEach((doc) => {
+            const itemData = doc.data();
+            const quantity = parseInt(itemData.quantity?.toString() || '0');
+            totalQuantity += isNaN(quantity) ? 0 : quantity;
+          });
+          
+          // Atualizar a quantidade do item com o total
+          item.quantity = totalQuantity.toString();
+          console.log(`Item ${item.name} tem quantidade combinada de ${totalQuantity}`);
+        }
+      }
+      
+      return item;
     } else {
       throw new Error('Item não encontrado');
     }
@@ -250,20 +302,20 @@ export const getInventoryItem = async (itemId: string) => {
 // Atualizar item existente
 export const updateInventoryItem = async (
   itemId: string,
-  updatedData: Partial<Omit<InventoryItem, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'photo' >>, // Dados a atualizar (sem foto)
-  newPhoto?: string // Nova foto em base64, opcional
+  updatedData: Partial<Omit<InventoryItem, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'photo'>>,
+  newPhoto?: string
 ) => {
   try {
     const userId = auth.currentUser?.uid;
     if (!userId) throw new Error('Utilizador não autenticado');
 
-    // Verificar se é um ID local (mantém como estava)
+    // Verificar se é um ID local
     if (itemId.startsWith('local_')) {
       console.log("Atualizando item localmente (offline)...");
       return await updateLocalItem(itemId, updatedData, newPhoto);
     }
 
-    // Verificar conectividade (mantém como estava)
+    // Verificar conectividade
     const online = await isOnline();
     if (!online) {
       console.log("Offline: Atualizando item localmente...");
@@ -275,6 +327,47 @@ export const updateInventoryItem = async (
     const currentItem = await getInventoryItem(itemId);
     if (!currentItem) throw new Error('Item original não encontrado para atualização.');
 
+    // Se estamos atualizando a quantidade e o nome/categoria não mudou,
+    // primeiro consolidar todos os itens com o mesmo nome e categoria
+    if (updatedData.quantity !== undefined) {
+      // Se o nome ou categoria estão sendo alterados, não precisamos consolidar
+      const nameChanged = updatedData.name !== undefined && updatedData.name !== currentItem.name;
+      const categoryChanged = updatedData.category !== undefined && updatedData.category !== currentItem.category;
+      
+      if (!nameChanged && !categoryChanged) {
+        console.log(`Consolidando itens para ${currentItem.name} antes da atualização`);
+        
+        // Buscar todos os itens com o mesmo nome e categoria
+        const q = query(
+          collection(db, 'inventory'),
+          where('userId', '==', userId),
+          where('name', '==', currentItem.name),
+          where('category', '==', currentItem.category || '')
+        );
+        
+        const snapshot = await getDocs(q);
+        
+        // Se encontramos mais de um item, consolidar
+        if (snapshot.size > 1) {
+          // Usar o primeiro item como base para consolidação
+          let baseItemId = itemId;
+          let otherItemIds: string[] = [];
+          
+          snapshot.forEach((doc) => {
+            if (doc.id !== itemId) {
+              otherItemIds.push(doc.id);
+            }
+          });
+          
+          // Deletar os outros itens
+          for (const id of otherItemIds) {
+            await deleteDoc(doc(db, 'inventory', id));
+          }
+          
+          console.log(`Consolidado ${otherItemIds.length + 1} itens em um único item`);
+        }
+      }
+    }
 
     const itemRef = doc(db, 'inventory', itemId);
     const updatePayload: any = {
@@ -282,8 +375,7 @@ export const updateInventoryItem = async (
       updatedAt: serverTimestamp()
     };
 
-    let newPhotoUrl: string | undefined = undefined;
-
+    // Processar a foto se houver
     if (newPhoto) {
       try {
         console.log("Processando nova foto para atualização...");
@@ -309,47 +401,48 @@ export const updateInventoryItem = async (
       }
     }
     
-    
-    // Se não foi enviada nova foto, photoUrl não é incluído no updatePayload (mantendo o valor existente ou nenhum)
-    // A menos que explicitamente se queira remover a foto
+    // Se não foi enviada nova foto, photoUrl não é incluído no updatePayload
     if (updatedData.hasOwnProperty('photoUrl') && updatedData.photoUrl === undefined) {
        console.log("Removendo photoUrl existente (pedido explícito)...");
-       // Se o pedido foi para remover a foto (enviando photoUrl: undefined)
        if (currentItem.photoUrl) {
          try {
            const oldPhotoRef = ref(storage, currentItem.photoUrl);
            await deleteObject(oldPhotoRef);
          } catch(e){console.warn("Erro ao deletar foto na remoção explícita:", e)}
        }
-       updatePayload.photoUrl = null; // Define como null no Firestore para remover
+       updatePayload.photoUrl = null;
     }
-
 
     console.log("Atualizando documento no Firestore...");
     await updateDoc(itemRef, updatePayload);
     console.log("Documento atualizado.");
 
-    // Adicionar ao histórico se a quantidade foi alterada (mantém como estava)
-    if (updatedData.quantity !== undefined && updatedData.quantity !== currentItem.quantity) {
-      try {
-        await addToHistory({
-          name: currentItem.name, // Usa o nome antigo ou novo dependendo da preferência
-          category: currentItem.category || '',
-          quantity: updatedData.quantity,
-          previousQuantity: currentItem.quantity,
-          action: 'update'
-        });
-      } catch (historyError) {
-        console.warn("Erro ao adicionar atualização ao histórico:", historyError);
-      }
-    }
+    const nameChanged = updatedData.name !== undefined && updatedData.name !== currentItem.name;
+const categoryChanged = updatedData.category !== undefined && updatedData.category !== currentItem.category;
+const quantityChanged = updatedData.quantity !== undefined && updatedData.quantity !== currentItem.quantity;
 
-    return true;
+// Adicionar ao histórico se qualquer campo relevante foi alterado
+if (nameChanged || categoryChanged || quantityChanged) {
+  try {
+    await addToHistory({
+      name: updatedData.name || currentItem.name,
+      category: updatedData.category || currentItem.category || '',
+      quantity: updatedData.quantity?.toString() || currentItem.quantity?.toString() || '0',
+      action: 'edit', // Usar 'edit' em vez de 'update'
+      previousData: {
+        name: currentItem.name,
+        category: currentItem.category || '',
+        quantity: currentItem.quantity?.toString() || '0'
+      }
+    });
+  } catch (historyError) {
+    console.warn("Erro ao adicionar edição ao histórico:", historyError);
+  }
+}
+
+return true;
   } catch (error) {
     console.error('Erro ao atualizar item:', error);
-
-    // Tentar atualizar localmente como fallback (mantém como estava)
-    console.log("Erro geral na atualização: Tentando atualizar localmente como fallback...");
     return await updateLocalItem(itemId, updatedData, newPhoto);
   }
 };
@@ -565,6 +658,43 @@ export const deleteInventoryItem = async (itemId: string) => {
       }
     };
     
+const combineItems = (items: InventoryItem[]): InventoryItem[] => {
+  const combinedItems: Record<string, InventoryItem> = {};
+
+  items.forEach(item => {
+    // Criar uma chave baseada no nome e categoria (ambos em minúsculas para evitar problemas de case)
+    const key = `${item.name.toLowerCase()}-${(item.category || '').toLowerCase()}`;
+    
+    if (combinedItems[key]) {
+      // Se este item já existe, somar as quantidades
+      const existingQty = parseInt(combinedItems[key].quantity.toString()) || 0;
+      const newQty = parseInt(item.quantity.toString()) || 0;
+      combinedItems[key].quantity = (existingQty + newQty).toString();
+      
+      // Se o item existente não tem ID mas este tem, usar o ID deste
+      if (!combinedItems[key].id && item.id) {
+        combinedItems[key].id = item.id;
+      }
+      
+      // Se o item existente não tem foto mas este tem, usar a foto deste
+      if (!combinedItems[key].photo && !combinedItems[key].photoUrl && (item.photo || item.photoUrl)) {
+        combinedItems[key].photo = item.photo;
+        combinedItems[key].photoUrl = item.photoUrl;
+      }
+      
+      // Manter o threshold personalizado se existir
+      if (!combinedItems[key].lowStockThreshold && item.lowStockThreshold) {
+        combinedItems[key].lowStockThreshold = item.lowStockThreshold;
+      }
+    } else {
+      // Primeira vez que vemos este item, adicionar aos itens combinados
+      combinedItems[key] = { ...item };
+    }
+  });
+
+  return Object.values(combinedItems);
+};
+
     // Função para obter histórico local
     const getLocalItemHistory = async (limitCount?: number) => {
       try {
@@ -778,18 +908,32 @@ export const deleteInventoryItem = async (itemId: string) => {
         }, 0);
     
         // A TUA LÓGICA ORIGINAL DE FILTRO DEVE ESTAR AQUI
-        const lowStockItems = itemsForStatCalculation.filter(item => {
-          const quantity = parseInt(item.quantity?.toString() || '0');
-          if (item.lowStockThreshold !== undefined) {
-            const customThreshold = parseInt(item.lowStockThreshold);
-            if (!isNaN(customThreshold)) return quantity <= customThreshold && quantity > 0;
-          }
-          return quantity <= parseInt(globalThreshold) && quantity > 0;
-        });
-        const outOfStockItems = itemsForStatCalculation.filter(item => {
-          const quantity = parseInt(item.quantity?.toString() || '0');
-          return quantity === 0;
-        });
+        const combinedItems = combineItems(itemsForStatCalculation);
+
+// Depois, filtre os itens combinados para encontrar aqueles com estoque baixo
+const lowStockItems = combinedItems.filter(item => {
+  const quantity = parseInt(item.quantity?.toString() || '0');
+  
+  // First check if item has a custom threshold
+  if (item.lowStockThreshold !== undefined) {
+    const customThreshold = parseInt(item.lowStockThreshold);
+    // Only consider as low stock if the custom threshold is greater than 0
+    if (!isNaN(customThreshold) && customThreshold > 0) {
+      return quantity <= customThreshold && quantity > 0;
+    }
+  }
+  
+  // If we get here, use the global threshold
+  // Only consider as low stock if the global threshold is greater than 0
+  const globalThresholdValue = parseInt(globalThreshold);
+  return globalThresholdValue > 0 && quantity <= globalThresholdValue && quantity > 0;
+});
+
+// Também filtre os itens sem estoque a partir dos itens combinados
+const outOfStockItems = combinedItems.filter(item => {
+  const quantity = parseInt(item.quantity?.toString() || '0');
+  return quantity === 0;
+});
         console.log(`[STATS_DEBUG] Itens com stock baixo (cálculo): ${lowStockItems.length}, Sem stock (cálculo): ${outOfStockItems.length}`);
     
     
@@ -1351,5 +1495,76 @@ export const syncPendingImageUploads = async () => {
     console.log(`Sync Uploads: Processamento concluído. ${pendingUploads.length - remainingUploads.length} processados, ${remainingUploads.length} pendentes.`);
   } catch (error) {
     console.error('Erro geral ao sincronizar uploads pendentes:', error);
+  }
+};
+export const consolidateInventoryItems = async () => {
+  try {
+    const userId = auth.currentUser?.uid;
+    if (!userId) {
+      console.log('Utilizador não autenticado ao consolidar itens');
+      return false;
+    }
+
+    // Obter todos os itens do usuário
+    const q = query(
+      collection(db, 'inventory'),
+      where('userId', '==', userId)
+    );
+    
+    const snapshot = await getDocs(q);
+    
+    // Agrupar itens por nome e categoria
+    const groupedItems: Record<string, {items: InventoryItem[], totalQuantity: number}> = {};
+    
+    snapshot.forEach((doc) => {
+      // Explicitamente tipar os dados do documento como InventoryItem
+      const item = { id: doc.id, ...doc.data() } as InventoryItem;
+      const key = `${item.name.toLowerCase()}-${(item.category || '').toLowerCase()}`;
+      
+      if (!groupedItems[key]) {
+        groupedItems[key] = { items: [], totalQuantity: 0 };
+      }
+      
+      groupedItems[key].items.push(item);
+      groupedItems[key].totalQuantity += parseInt(item.quantity?.toString() || '0');
+    });
+    
+    // Para cada grupo com mais de um item, consolidar em um único item
+    for (const key in groupedItems) {
+      const group = groupedItems[key];
+      
+      if (group.items.length > 1) {
+        console.log(`Consolidando ${group.items.length} itens para ${group.items[0].name}`);
+        
+        // Usar o primeiro item como base
+        const baseItem = group.items[0];
+        
+        // Verificar se o ID existe antes de atualizar
+        if (baseItem.id) {
+          // Atualizar a quantidade do primeiro item para o total
+          await updateDoc(doc(db, 'inventory', baseItem.id), {
+            quantity: group.totalQuantity.toString(),
+            updatedAt: serverTimestamp()
+          });
+          
+          // Excluir os outros itens
+          for (let i = 1; i < group.items.length; i++) {
+            const itemToDelete = group.items[i];
+            if (itemToDelete.id) {
+              await deleteDoc(doc(db, 'inventory', itemToDelete.id));
+            } else {
+              console.warn('Item sem ID encontrado durante a consolidação, não pode ser excluído:', itemToDelete);
+            }
+          }
+        } else {
+          console.error('Item base sem ID encontrado durante a consolidação, não pode ser atualizado:', baseItem);
+        }
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Erro ao consolidar itens:', error);
+    return false;
   }
 };

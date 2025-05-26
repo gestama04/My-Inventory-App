@@ -6,16 +6,18 @@ import {
   onAuthStateChanged,
   updateProfile,
   sendPasswordResetEmail,
-  User
+  User,
+   sendEmailVerification
 } from 'firebase/auth';
 import { auth, db } from './firebase-config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { doc, setDoc } from 'firebase/firestore';
 import { clearAllListeners } from './firestore-listeners';
+
 interface AuthContextType {
   currentUser: User | null;
   loading: boolean;
-  login: (email: string, password: string, rememberMe: boolean) => Promise<void>;
+  login: (email: string, password: string, rememberMe: boolean) => Promise<User>; // Alterado para Promise<User>
   register: (email: string, password: string, userData: UserData) => Promise<User | null>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
@@ -31,7 +33,7 @@ interface UserData {
 const AuthContext = createContext<AuthContextType>({
   currentUser: null,
   loading: true,
-  login: async () => {},
+  login: async () => { return null as unknown as User }, // Modificado para retornar um User
   register: async () => null,
   logout: async () => {},
   resetPassword: async () => {},
@@ -111,46 +113,66 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     }
   }, []);
 
-  const login = async (email: string, password: string, rememberMe: boolean = false) => {
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      await persistUser(userCredential.user, rememberMe);
-    } catch (error) {
-      // Propagar o erro original completo, mantendo o código de erro
-      throw error;
+const login = async (email: string, password: string, rememberMe: boolean = false) => {
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+    
+    // Verificar se o email foi verificado
+    if (!user.emailVerified) {
+      // Enviar novo email de verificação
+      await sendEmailVerification(user);
+      
+      // Fazer logout do usuário
+      await signOut(auth);
+      
+      // Lançar um erro específico para email não verificado
+      throw new Error('email-not-verified');
     }
-  };
+    
+    // Se o email estiver verificado, continuar com o login normal
+    await persistUser(user, rememberMe);
+    return user;
+  } catch (error) {
+    // Propagar o erro original completo, mantendo o código de erro
+    throw error;
+  }
+};
   
 
-  const register = async (email: string, password: string, userData: UserData) => {
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+const register = async (email: string, password: string, userData: UserData) => {
+  try {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
-      // Atualizar o perfil do utilizador com o nome completo
-      const displayName = `${userData.firstName} ${userData.lastName}`;
-      if (userCredential.user) {
-        await updateProfile(userCredential.user, {
-          displayName: displayName
-        });
+    // Atualizar o perfil do utilizador com o nome completo
+    const displayName = `${userData.firstName} ${userData.lastName}`;
+    if (userCredential.user) {
+      await updateProfile(userCredential.user, {
+        displayName: displayName
+      });
         
-        // Salvar dados adicionais no Firestore
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          firstName: userData.firstName,
-          lastName: userData.lastName,
-          birthDate: userData.birthDate || null,
-          email: email,
-          createdAt: new Date()
-        });
+      // Enviar email de verificação
+      await sendEmailVerification(userCredential.user);
         
-        // Atualizar o utilizador atual para refletir as mudanças
-        setCurrentUser({...userCredential.user});
-      }
-      
-      return userCredential.user;
-    } catch (error) {
-      throw error; // Propagar o erro original
+      // Salvar dados adicionais no Firestore
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        birthDate: userData.birthDate || null,
+        email: email,
+        createdAt: new Date(),
+        emailVerified: false // Adicionar campo para rastrear status de verificação
+      });
+        
+      // Atualizar o utilizador atual para refletir as mudanças
+      setCurrentUser({...userCredential.user});
     }
-  };
+      
+    return userCredential.user;
+  } catch (error) {
+    throw error; // Propagar o erro original
+  }
+};
 
   const logout = async () => {
     try {

@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import useCustomAlert from '../hooks/useCustomAlert';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { sendEmailVerification } from 'firebase/auth';
 
 export default function RegisterScreen() {
   const [firstName, setFirstName] = useState('');
@@ -88,7 +89,7 @@ export default function RegisterScreen() {
     const hasUpperCase = /[A-Z]/.test(pass);
     const hasLowerCase = /[a-z]/.test(pass);
     const hasNumber = /[0-9]/.test(pass);
-    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(pass);
+    const hasSpecialChar = /[!@#€£$%^&*(),.?":{}|<>]/.test(pass);
     
     // Calcular pontuação (0-5)
     let score = 0;
@@ -130,110 +131,108 @@ export default function RegisterScreen() {
     return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getFullYear()}`;
   };
 
-  const handleRegister = async () => {
-    // Validar campos
-    if (!firstName || !lastName || !email || !password || !confirmPassword) {
-      showAlert('Erro', 'Por favor, preencha todos os campos obrigatórios', [
-        { text: 'OK', onPress: () => {} }
-      ]);
-      return;
-    }
-     
-    if (password !== confirmPassword) {
-      showAlert('Erro', 'As passwords não coincidem', [
-        { text: 'OK', onPress: () => {} }
-      ]);
-      return;
-    }
-     
-// Verificar se todos os requisitos de senha foram atendidos
-if (!passwordStrength.hasMinLength || 
-  !passwordStrength.hasUpperCase || 
-  !passwordStrength.hasLowerCase || 
-  !passwordStrength.hasNumber || 
-  !passwordStrength.hasSpecialChar) {
-
-// Determinar qual requisito está faltando para uma mensagem mais específica
-let mensagemErro = 'A sua password deve conter:';
-if (!passwordStrength.hasMinLength) mensagemErro += '\n Pelo menos 8 caracteres';
-if (!passwordStrength.hasUpperCase) mensagemErro += '\n Pelo menos uma letra maiúscula';
-if (!passwordStrength.hasLowerCase) mensagemErro += '\n Pelo menos uma letra minúscula';
-if (!passwordStrength.hasNumber) mensagemErro += '\n Pelo menos um número';
-if (!passwordStrength.hasSpecialChar) mensagemErro += '\n Pelo menos um caractere especial';
-
-showAlert(
-  'Password incompleta',
-  mensagemErro,
-  [
-    { text: 'OK', onPress: () => {} }
-  ]
-);
-return;
-}
-
-     
-    // Continuar com o registro apenas se a senha for forte o suficiente
-    setIsLoading(true);
+const handleRegister = async () => {
+  // Validar campos
+  if (!firstName || !lastName || !email || !password || !confirmPassword) {
+    showAlert('Erro', 'Por favor, preencha todos os campos obrigatórios', [
+      { text: 'OK', onPress: () => {} }
+    ]);
+    return;
+  }
+       
+  if (password !== confirmPassword) {
+    showAlert('Erro', 'As passwords não coincidem', [
+      { text: 'OK', onPress: () => {} }
+    ]);
+    return;
+  }
+   
+  // Verificar se todos os requisitos de senha foram atendidos
+  if (!passwordStrength.hasMinLength || 
+      !passwordStrength.hasUpperCase || 
+      !passwordStrength.hasLowerCase || 
+      !passwordStrength.hasNumber || 
+      !passwordStrength.hasSpecialChar) {
+    // Determinar qual requisito está faltando para uma mensagem mais específica
+    let mensagemErro = 'A sua password deve conter:';
+    if (!passwordStrength.hasMinLength) mensagemErro += '\n Pelo menos 8 caracteres';
+    if (!passwordStrength.hasUpperCase) mensagemErro += '\n Pelo menos uma letra maiúscula';
+    if (!passwordStrength.hasLowerCase) mensagemErro += '\n Pelo menos uma letra minúscula';
+    if (!passwordStrength.hasNumber) mensagemErro += '\n Pelo menos um número';
+    if (!passwordStrength.hasSpecialChar) mensagemErro += '\n Pelo menos um caractere especial';
     
-    try {
-      // Verificar se o email já existe
-      const emailExists = await checkEmailExists(email);
-      
-      if (emailExists) {
-        showAlert(
-          'Email já registado',
-          'Este email já está em uso. Deseja fazer login?',
-          [
-            { text: 'Não', style: 'cancel', onPress: () => {} },
-            {
-              text: 'Sim',
-              onPress: () => router.replace('/login')
-            }
-          ]
-        );
-        setIsLoading(false);
-        return;
-      }
-      
-      
-      // Formatar data para string (se existir)
-      const birthDateStr = birthDate ? formatDate(birthDate) : undefined;
-      
-      // Registrar utilizador
-      await register(email, password, {
-        firstName,
-        lastName,
-        birthDate: birthDateStr
-      });
-      
+    showAlert(
+      'Password incompleta',
+      mensagemErro,
+      [
+        { text: 'OK', onPress: () => {} }
+      ]
+    );
+    return;
+  }
+       
+  // Continuar com o registo apenas se a senha for forte o suficiente
+  setIsLoading(true);
+     
+  try {
+    // Verificar se o email já existe
+    const emailExists = await checkEmailExists(email);
+         
+    if (emailExists) {
       showAlert(
-        'Sucesso', 
-        'Conta criada com sucesso!', 
+        'Email já registado',
+        'Este email já está em uso. Deseja fazer login?',
         [
-          { text: 'OK', onPress: () => router.replace('/home') }
+          { text: 'Não', style: 'cancel', onPress: () => {} },
+          {
+            text: 'Sim',
+            onPress: () => router.replace('/login')
+          }
         ]
       );
-      
-    } catch (error: any) {
-      let errorMessage = 'Falha ao criar conta';
-          
-      // Mensagens de erro mais amigáveis
-      if (error.message.includes('email-already-in-use')) {
-        errorMessage = 'Este email já está em uso. Tente fazer login ou use outro email.';
-      } else if (error.message.includes('invalid-email')) {
-        errorMessage = 'Email inválido. Verifique se digitou corretamente.';
-      } else if (error.message.includes('weak-password')) {
-        errorMessage = 'A password é muito fraca. Use uma mais forte.';
-      }
-          
-      showAlert('Erro de Registo', errorMessage, [
-        { text: 'OK', onPress: () => {} }
-      ]);
-    } finally {
       setIsLoading(false);
+      return;
     }
-    
-  };
+              
+    // Formatar data para string (se existir)
+    const birthDateStr = birthDate ? formatDate(birthDate) : undefined;
+         
+    // Registar utilizador
+    const user = await register(email, password, {
+  firstName,
+  lastName,
+  birthDate: birthDateStr
+});
+
+
+         
+    showAlert(
+      'Sucesso',
+      'Conta criada com sucesso! Por favor, verifique o seu email para confirmar o registo.',
+      [
+        { text: 'OK', onPress: () => router.replace('/login') }
+      ]
+    );
+       
+  } catch (error: any) {
+    let errorMessage = 'Falha ao criar conta';
+             
+    // Mensagens de erro mais amigáveis
+    if (error.message.includes('email-already-in-use')) {
+      errorMessage = 'Este email já está em uso. Tente fazer login ou use outro email.';
+    } else if (error.message.includes('invalid-email')) {
+      errorMessage = 'Email inválido. Verifique se digitou corretamente.';
+    } else if (error.message.includes('weak-password')) {
+      errorMessage = 'A password é muito fraca. Use uma mais forte.';
+    }
+             
+    showAlert('Erro de Registo', errorMessage, [
+      { text: 'OK', onPress: () => {} }
+    ]);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   return (
     <KeyboardAvoidingView

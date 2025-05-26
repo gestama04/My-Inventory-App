@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { VictoryPie } from 'victory-native';
 import { useAuth } from '../auth-context';
-
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 // Firebase imports
 import { 
   collection, 
@@ -15,6 +15,7 @@ import {
   orderBy
 } from 'firebase/firestore';
 import { db } from '../firebase-config';
+import { CategoryIconService } from '../services/category-icon-service';
 
 interface InventoryItem {
   id?: string;
@@ -36,9 +37,19 @@ export default function StatisticsScreen() {
   const [topItems, setTopItems] = useState<InventoryItem[]>([]);
   const [leastUsedItems, setLeastUsedItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [categoryIcons, setCategoryIcons] = useState<Record<string, string>>({});
   const { currentTheme } = useTheme();
   const router = useRouter();
   const { currentUser } = useAuth();
+  const [categoryColorMap, setCategoryColorMap] = useState<Record<string, string>>({});
+  
+const getCategoryColorMap = (categories: string[]) => {
+  const colorMap: Record<string, string> = {};
+  categories.forEach((category, index) => {
+    colorMap[category] = getUniqueColor(index);
+  });
+  return colorMap;
+};
 
   useEffect(() => {
     if (currentUser) {
@@ -48,81 +59,119 @@ export default function StatisticsScreen() {
     }
   }, [currentUser]);
 
-  const loadStats = async () => {
-    if (!currentUser) {
-      console.log("Utilizador não autenticado");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // Procurar itens do inventário do utilizador atual
-      const inventoryRef = collection(db, 'inventory');
-      const q = query(
-        inventoryRef, 
-        where('userId', '==', currentUser.uid),
-        orderBy('name')
-      );
-      
-      const querySnapshot = await getDocs(q);
-      const inventory: InventoryItem[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        inventory.push({
-          id: doc.id,
-          category: data.category || 'Sem Categoria',
-          name: data.name,
-          quantity: parseInt(data.quantity.toString()) || 0
-        });
+const loadStats = async () => {
+  if (!currentUser) {
+    console.log("Utilizador não autenticado");
+    return;
+  }
+  setLoading(true);
+  try {
+    // Procurar itens do inventário do utilizador atual
+    const inventoryRef = collection(db, 'inventory');
+    const q = query(
+      inventoryRef,
+      where('userId', '==', currentUser.uid),
+      orderBy('name')
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const rawInventory: InventoryItem[] = [];
+    
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      rawInventory.push({
+        id: doc.id,
+        category: data.category || 'Sem Categoria',
+        name: data.name,
+        quantity: parseInt(data.quantity.toString()) || 0
       });
+    });
+    
+    // Combinar itens com o mesmo nome e categoria
+    const combinedInventoryMap: Record<string, InventoryItem> = {};
+    
+    rawInventory.forEach(item => {
+      // Criar uma chave única baseada no nome e categoria
+      const key = `${item.name.toLowerCase()}-${item.category.toLowerCase()}`;
       
-      // Calcular total de itens corretamente
-      const totalQuantity = inventory.reduce((sum: number, item: InventoryItem) =>
-        sum + (parseInt(item.quantity.toString()) || 0), 0
-      );
-      setTotalItems(totalQuantity);
-
-      // Calcular estatísticas de categoria com contagens corretas
-      const categoryCount = inventory.reduce((acc: Record<string, number>, item: InventoryItem) => {
-        const itemQuantity = parseInt(item.quantity.toString()) || 0;
-        const category = item.category || 'Sem Categoria';
-        
-        if (!acc[category]) {
-          acc[category] = 0;
-        }
-        acc[category] += itemQuantity;
-        return acc;
-      }, {});
-
-      // Converter para formato de array para VictoryPie
-      const stats = Object.entries(categoryCount)
-        .map(([category, count]) => ({
-          category,
-          count: count as number,
-          percentage: totalQuantity > 0 ? ((count as number) / totalQuantity) * 100 : 0
-        }))
-        .sort((a, b) => b.count - a.count);
-
-      setCategoryStats(stats);
-
-      // Ordenar itens por quantidade
-      const sortedItems = [...inventory].sort((a, b) => 
-        (parseInt(b.quantity.toString()) || 0) - (parseInt(a.quantity.toString()) || 0)
-      );
-      const sortedItemsLeast = [...inventory].sort((a, b) => 
-        (parseInt(a.quantity.toString()) || 0) - (parseInt(b.quantity.toString()) || 0)
-      );
+      if (combinedInventoryMap[key]) {
+        // Se já existe um item com este nome e categoria, somar as quantidades
+        combinedInventoryMap[key].quantity += item.quantity;
+      } else {
+        // Caso contrário, adicionar o item ao mapa
+        combinedInventoryMap[key] = { ...item };
+      }
+    });
+    
+    // Converter o mapa de volta para um array
+    const inventory = Object.values(combinedInventoryMap);
+    
+    // Calcular total de itens corretamente
+    const totalQuantity = inventory.reduce((sum: number, item: InventoryItem) =>
+      sum + (parseInt(item.quantity.toString()) || 0), 0
+    );
+    setTotalItems(totalQuantity);
+    
+    // Calcular estatísticas de categoria com contagens corretas
+    const categoryCount = inventory.reduce((acc: Record<string, number>, item: InventoryItem) => {
+      const itemQuantity = parseInt(item.quantity.toString()) || 0;
+      const category = item.category || 'Sem Categoria';
       
-      setTopItems(sortedItems.slice(0, 5));
-      setLeastUsedItems(sortedItemsLeast.slice(0, 5));
-    } catch (error) {
-      console.error('Erro ao carregar estatísticas:', error);
-    } finally {
-      setLoading(false);
+      if (!acc[category]) {
+        acc[category] = 0;
+      }
+      acc[category] += itemQuantity;
+      return acc;
+    }, {});
+    
+    // Converter para formato de array para VictoryPie
+    const stats = Object.entries(categoryCount)
+      .map(([category, count]) => ({
+        category,
+        count: count as number,
+        percentage: totalQuantity > 0 ? ((count as number) / totalQuantity) * 100 : 0
+      }))
+      .sort((a, b) => b.count - a.count);
+    
+    setCategoryStats(stats);
+    
+    const uniqueCategories = [...new Set(inventory.map(item => item.category || 'Sem Categoria'))];
+    const categoryColorMap = getCategoryColorMap(uniqueCategories);
+    setCategoryColorMap(categoryColorMap);
+    
+    await loadCategoryIcons(uniqueCategories);
+    
+    // Ordenar itens por quantidade
+    const sortedItems = [...inventory].sort((a, b) =>
+      (parseInt(b.quantity.toString()) || 0) - (parseInt(a.quantity.toString()) || 0)
+    );
+    
+    const sortedItemsLeast = [...inventory].sort((a, b) =>
+      (parseInt(a.quantity.toString()) || 0) - (parseInt(b.quantity.toString()) || 0)
+    );
+    
+    setTopItems(sortedItems.slice(0, 5));
+    setLeastUsedItems(sortedItemsLeast.slice(0, 5));
+  } catch (error) {
+    console.error('Erro ao carregar estatísticas:', error);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const loadCategoryIcons = async (categories: string[]) => {
+    const icons: Record<string, string> = {};
+    
+    for (const category of categories) {
+      if (category) {
+        const iconName = await CategoryIconService.getIconForCategory(category);
+        icons[category] = iconName;
+      }
     }
+    
+    setCategoryIcons(icons);
   };
-
+  
   const getUniqueColor = (index: number) => {
     const allColors = [
 '#FF0000', // Red
@@ -337,10 +386,7 @@ export default function StatisticsScreen() {
             radius={120}
             sortKey="count"
             sortOrder="descending"
-            colorScale={categoryStats
-              .sort((a, b) => b.count - a.count)
-              .map((_, index) => getUniqueColor(index))
-            }
+            colorScale={categoryStats.map(stat => categoryColorMap[stat.category])}
             style={{
               labels: {
                 fill: 'white',
@@ -354,7 +400,7 @@ export default function StatisticsScreen() {
           <View style={styles.legendContainer}>
             {categoryStats.map((stat, index) => (
               <View key={index} style={styles.legendItem}>
-                <View style={[styles.colorBox, { backgroundColor: getUniqueColor(index) }]} />
+                <View style={[styles.colorBox, { backgroundColor: categoryColorMap[stat.category] }]} />
                 <Text style={[styles.legendText, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
                   {stat.category} ({stat.count})
                 </Text>
@@ -371,109 +417,133 @@ export default function StatisticsScreen() {
         </View>
       )}
 
-      {topItems.length > 0 && (
-        <View style={[styles.topCategories, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
-          <Text style={[styles.subtitle, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-            Top 5 Produtos com Maior Quantidade
-          </Text>
-          {topItems.map((item, index) => (
-            <View key={index} style={styles.categoryRow}>
-              <Text style={[styles.rankingNumber, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-                {index + 1}.
-              </Text>
-              <MaterialIcons
-                name="inventory"
-                size={20}
-                color={getUniqueColor(categoryStats.findIndex(stat => stat.category === item.category) >= 0 
-                  ? categoryStats.findIndex(stat => stat.category === item.category) 
-                  : index)}
-              />
-              <Text style={[styles.categoryText, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-                {item.name}: {item.quantity} unidades
-              </Text>
-            </View>
-          ))}
-        </View>
-      )}
+{topItems.length > 0 && (
+  <View style={[styles.topCategories, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
+    <View style={styles.subtitleContainer}>
+      <MaterialCommunityIcons 
+        name="trending-up" 
+        size={24} 
+        color={currentTheme === 'dark' ? '#fff' : '#333'} 
+      />
+      <Text style={[styles.subtitle, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+        Top 5 Produtos com Maior Stock
+      </Text>
+    </View>
+    {topItems.map((item, index) => (
+      <View key={index} style={styles.categoryRow}>
+        <Text style={[styles.rankingNumber, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+          {index + 1}.
+        </Text>
+        <MaterialCommunityIcons
+          name={(categoryIcons[item.category] || CategoryIconService.DEFAULT_ICON) as keyof typeof MaterialCommunityIcons.glyphMap}
+          size={20}
+          color={categoryColorMap[item.category] || getUniqueColor(index)}
+        />
+        <Text style={[styles.categoryText, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+          {item.name}: {item.quantity} unidade(s)
+        </Text>
+      </View>
+    ))}
+  </View>
+)}
 
-      {leastUsedItems.length > 0 && (
-        <View style={[styles.topCategories, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
-          <Text style={[styles.subtitle, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-            Top 5 Produtos com Menor Quantidade
-          </Text>
-          {leastUsedItems.map((item, index) => (
-            <View key={index} style={styles.categoryRow}>
-              <Text style={[styles.rankingNumber, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-                {index + 1}.
-              </Text>
-              <MaterialIcons
-                name="trending-down"
-                size={20}
-                color={getUniqueColor(categoryStats.findIndex(stat => stat.category === item.category) >= 0 
-                  ? categoryStats.findIndex(stat => stat.category === item.category) 
-                  : index)}
-              />
-              <Text style={[styles.categoryText, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-                {item.name}: {item.quantity} unidades
-              </Text>
-            </View>
-          ))}
-        </View>
-      )}
+{leastUsedItems.length > 0 && (
+  <View style={[styles.topCategories, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
+    <View style={styles.subtitleContainer}>
+      <MaterialCommunityIcons 
+        name="trending-down" 
+        size={24} 
+        color={currentTheme === 'dark' ? '#fff' : '#333'} 
+      />
+      <Text style={[styles.subtitle, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+        Top 5 Produtos com Menor Stock
+      </Text>
+    </View>
+    {leastUsedItems.map((item, index) => (
+      <View key={index} style={styles.categoryRow}>
+        <Text style={[styles.rankingNumber, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+          {index + 1}.
+        </Text>
+        <MaterialCommunityIcons
+          name={(categoryIcons[item.category] || CategoryIconService.DEFAULT_ICON) as keyof typeof MaterialCommunityIcons.glyphMap}
+          size={20}
+          color={categoryColorMap[item.category] || getUniqueColor(index)}
+        />
+        <Text style={[styles.categoryText, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+          {item.name}: {item.quantity} unidade(s)
+        </Text>
+      </View>
+    ))}
+  </View>
+)}
 
-      {categoryStats.length > 0 && (
-        <View style={[styles.topCategories, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
-          <Text style={[styles.subtitle, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-            Top 5 Categorias Mais Usadas
+{categoryStats.length > 0 && (
+  <View style={[styles.topCategories, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
+    <View style={styles.subtitleContainer}>
+      <MaterialCommunityIcons 
+        name="trophy" 
+        size={24} 
+        color={currentTheme === 'dark' ? '#fff' : '#333'} 
+      />
+      <Text style={[styles.subtitle, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+        Top 5 Categorias Mais Usadas
+      </Text>
+    </View>
+    {categoryStats
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+      .map((stat, index) => (
+        <View key={index} style={styles.categoryRow}>
+          <Text style={[styles.rankingNumber, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+            {index + 1}.
           </Text>
-          {categoryStats
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 5)
-            .map((stat, index) => (
-              <View key={index} style={styles.categoryRow}>
-                <Text style={[styles.rankingNumber, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-                  {index + 1}.
-                </Text>
-                <MaterialIcons
-                  name="star"
-                  size={20}
-                  color={getUniqueColor(index)}
-                />
-                <Text style={[styles.categoryText, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-                  {stat.category}: {stat.count} itens
-                </Text>
-              </View>
-            ))}
+          <MaterialCommunityIcons
+            name={(categoryIcons[stat.category] || CategoryIconService.DEFAULT_ICON) as keyof typeof MaterialCommunityIcons.glyphMap}
+            size={20}
+            color={categoryColorMap[stat.category] || getUniqueColor(index)}
+          />
+          <Text style={[styles.categoryText, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+            {stat.category}: {stat.count} produto(s)
+          </Text>
         </View>
-      )}
+      ))}
+  </View>
+)}
 
-      {categoryStats.length > 0 && (
-        <View style={[styles.topCategories, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
-          <Text style={[styles.subtitle, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-            Top 5 Categorias Menos Usadas
+{categoryStats.length > 0 && (
+  <View style={[styles.topCategories, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
+    <View style={styles.subtitleContainer}>
+      <MaterialCommunityIcons 
+        name="arrow-down-bold-circle" 
+        size={24} 
+        color={currentTheme === 'dark' ? '#fff' : '#333'} 
+      />
+      <Text style={[styles.subtitle, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+        Top 5 Categorias Menos Usadas
+      </Text>
+    </View>
+    {categoryStats
+      .sort((a, b) => a.count - b.count)
+      .slice(0, 5)
+      .map((stat, index) => (
+        <View key={index} style={styles.categoryRow}>
+          <Text style={[styles.rankingNumber, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+            {index + 1}.
           </Text>
-          {categoryStats
-            .sort((a, b) => a.count - b.count)
-            .slice(0, 5)
-            .map((stat, index) => (
-              <View key={index} style={styles.categoryRow}>
-                <Text style={[styles.rankingNumber, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-                  {index + 1}.
-                </Text>
-                <MaterialIcons
-                  name="trending-down"
-                  size={20}
-                  color={getUniqueColor(index)}
-                />
-                <Text style={[styles.categoryText, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-                  {stat.category}: {stat.count} itens
-                </Text>
-              </View>
-            ))}
+          <MaterialCommunityIcons
+            name={(categoryIcons[stat.category] || CategoryIconService.DEFAULT_ICON) as keyof typeof MaterialCommunityIcons.glyphMap}
+            size={20}
+            color={categoryColorMap[stat.category] || getUniqueColor(index)}
+          />
+          <Text style={[styles.categoryText, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+            {stat.category}: {stat.count} produto(s)
+          </Text>
         </View>
-      )}
-    </ScrollView>
-  );
+      ))}
+  </View>
+)}
+</ScrollView>
+);
 }
 const styles = StyleSheet.create({
   container: {
@@ -534,6 +604,12 @@ const styles = StyleSheet.create({
   statText: {
     fontSize: 16,
     marginLeft: 10,
+  },
+   subtitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 10,
+    gap: 8,
   },
   chartContainer: {
     alignItems: 'center',

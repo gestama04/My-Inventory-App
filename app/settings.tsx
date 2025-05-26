@@ -21,7 +21,7 @@ import {
   addInventoryItem
 } from '../inventory-service';
 import { db, auth } from '../firebase-config';
-import { collection, query, where, getDocs, deleteDoc, doc, getDoc, setDoc,updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, writeBatch, query, where, getDocs, deleteDoc, doc, getDoc, setDoc,updateDoc, serverTimestamp } from 'firebase/firestore';
 
 interface Item {
   id?: string;
@@ -81,16 +81,53 @@ export default function SettingsScreen() {
   const { showAlert, AlertComponent } = useCustomAlert();
 
   const validatePositiveInteger = (value: string): string => {
-    // Remove qualquer caractere não numérico
-    const cleanedValue = value.replace(/[^0-9]/g, '');
+  // Se estiver vazio, retorna string vazia (não retorna "0")
+  if (value === '') return '';
+  
+  // Remove qualquer caractere não numérico
+  const cleanedValue = value.replace(/[^0-9]/g, '');
+  
+  // Se após a limpeza ficar vazio, retorna string vazia
+  if (cleanedValue === '') return '';
+  
+  // Converte para número
+  const numValue = parseInt(cleanedValue, 10);
+  
+  // Retorna o valor como string (incluindo zero)
+  return numValue.toString();
+};
+
+const combineInventoryItems = (items: Item[]): Item[] => {
+  const combinedItems: Record<string, Item> = {};
+
+  items.forEach(item => {
+    // Create a key based on name and category
+    const key = `${item.name.toLowerCase()}-${(item.category || '').toLowerCase()}`;
     
-    // Se estiver vazio, retorna vazio ou "0" conforme preferir
-    if (cleanedValue === '') return '';
-    
-    // Converte para número e garante que é positivo
-    const numValue = parseInt(cleanedValue, 10);
-    return numValue.toString();
-  };
+    if (combinedItems[key]) {
+      // If this item already exists, add the quantities
+      const existingQty = parseInt(combinedItems[key].quantity.toString()) || 0;
+      const newQty = parseInt(item.quantity.toString()) || 0;
+      combinedItems[key].quantity = (existingQty + newQty).toString();
+      
+      // If the existing item doesn't have an ID but this one does, use this one's ID
+      if (!combinedItems[key].id && item.id) {
+        combinedItems[key].id = item.id;
+      }
+      
+      // If the existing item doesn't have a photo but this one does, use this one's photo
+      if (!combinedItems[key].photo && !combinedItems[key].photoUrl && (item.photo || item.photoUrl)) {
+        combinedItems[key].photo = item.photo;
+        combinedItems[key].photoUrl = item.photoUrl;
+      }
+    } else {
+      // First time seeing this item, add it to the combined items
+      combinedItems[key] = { ...item };
+    }
+  });
+
+  return Object.values(combinedItems);
+};
 
 // Modificado para usar Firebase
 useEffect(() => {
@@ -105,7 +142,9 @@ useEffect(() => {
       
       // Carregar inventário do Firebase
       const unsubscribe = getInventoryItems((items) => {
-        setInventory(items);
+        // Combine items with the same name and category
+        const combinedItems = combineInventoryItems(items);
+        setInventory(combinedItems);
       });
       
       // Carregar configurações do Utilizador diretamente do Firestore
@@ -158,7 +197,7 @@ useEffect(() => {
       setLoading(false);
       
       // Limpar o listener quando o componente for desmontado
-      return () => {
+ return () => {
         if (typeof unsubscribe === 'function') {
           unsubscribe();
         }
@@ -184,7 +223,7 @@ useEffect(() => {
     
     showAlert(
       "Limpar Histórico",
-      "Tem a certeza que deseja limpar o histórico de itens?",
+      "Tem a certeza que deseja limpar o histórico de Produtos?",
       [
         { text: "Cancelar", style: "cancel", onPress: () => {} },
         {
@@ -279,63 +318,57 @@ useEffect(() => {
 const updateItemThreshold = async (index: number, newThresholdValue: string | undefined) => {
   const itemToUpdate = inventory[index];
   if (!currentUser || !itemToUpdate || !itemToUpdate.id) {
-    showAlert("Erro", "Utilizador não autenticado", [
-  { text: "OK", onPress: () => {} } // Adicionar onPress
-]);
+    showAlert("Erro", "Não foi possível atualizar o item", [
+      { text: "OK", onPress: () => {} }
+    ]);
     return;
   }
 
   const itemId = itemToUpdate.id;
   const itemRef = doc(db, 'inventory', itemId);
 
-  let firestoreUpdateData: { lowStockThreshold: string | null, updatedAt: any };
-  let localItemUpdate: Partial<Item> = {};
-
-  if (newThresholdValue === undefined) {
-    // Intenção de DESATIVAR o threshold customizado (Switch desligado)
-    firestoreUpdateData = { lowStockThreshold: null, updatedAt: serverTimestamp() };
-    localItemUpdate = { lowStockThreshold: undefined }; // Para o estado local, undefined é mais claro para "não definido"
-    console.log(`SettingsScreen: Desativando threshold para ${itemToUpdate.name}. Firestore: null, Local: undefined`);
-  } else {
-    // Intenção de ATIVAR ou MODIFICAR o threshold customizado
-    const validatedThreshold = validatePositiveInteger(newThresholdValue);
-
-    if (validatedThreshold === "") {
-      // Se o TextInput for apagado, é o mesmo que desativar o threshold customizado
-      firestoreUpdateData = { lowStockThreshold: null, updatedAt: serverTimestamp() };
-      localItemUpdate = { lowStockThreshold: undefined };
-      console.log(`SettingsScreen: Threshold limpo (string vazia) para ${itemToUpdate.name}. Firestore: null, Local: undefined`);
-    } else {
-      // Definir um valor de threshold customizado válido
-      firestoreUpdateData = { lowStockThreshold: validatedThreshold, updatedAt: serverTimestamp() };
-      localItemUpdate = { lowStockThreshold: validatedThreshold };
-      console.log(`SettingsScreen: Ativando/Modificando threshold para ${itemToUpdate.name} para ${validatedThreshold}`);
-    }
-  }
-
   try {
-    await updateDoc(itemRef, firestoreUpdateData);
-
-    // Atualizar o estado local de forma imutável
-    setInventory(prevInventory =>
-      prevInventory.map((item, i) => {
-        if (i === index) {
-          // Se estamos removendo o threshold, a propriedade é deletada do objeto.
-          // Caso contrário, ela é atualizada.
-          const updatedItem = { ...item, ...localItemUpdate };
-          if (localItemUpdate.lowStockThreshold === undefined) {
+    // Se o valor for undefined ou string vazia, remover o threshold personalizado
+    if (newThresholdValue === undefined || newThresholdValue === '') {
+      await updateDoc(itemRef, { 
+        lowStockThreshold: null, 
+        updatedAt: serverTimestamp() 
+      });
+      
+      // Atualizar o estado local
+      setInventory(prevInventory => 
+        prevInventory.map((item, i) => {
+          if (i === index) {
+            const updatedItem = { ...item };
             delete updatedItem.lowStockThreshold;
+            return updatedItem;
           }
-          return updatedItem;
-        }
-        return item;
-      })
-    );
+          return item;
+        })
+      );
+      
+      console.log(`Threshold personalizado removido para ${itemToUpdate.name}`);
+    } else {
+      // Definir ou atualizar o threshold personalizado (incluindo zero)
+      await updateDoc(itemRef, { 
+        lowStockThreshold: newThresholdValue, 
+        updatedAt: serverTimestamp() 
+      });
+      
+      // Atualizar o estado local
+      setInventory(prevInventory => 
+        prevInventory.map((item, i) => 
+          i === index ? { ...item, lowStockThreshold: newThresholdValue } : item
+        )
+      );
+      
+      console.log(`Threshold personalizado definido para ${itemToUpdate.name}: ${newThresholdValue}`);
+    }
   } catch (error) {
     console.error("Erro ao atualizar threshold do item:", error);
-    showAlert("Erro", "Utilizador não autenticado", [
-  { text: "OK", onPress: () => {} } // Adicionar onPress
-]);
+    showAlert("Erro", "Não foi possível atualizar o threshold do item", [
+      { text: "OK", onPress: () => {} }
+    ]);
   }
 };
 
@@ -503,72 +536,180 @@ const updateItemThreshold = async (index: number, newThresholdValue: string | un
   };
 
   // Importar dados - modificado para Firebase
-  const importData = async () => {
-    if (!currentUser) {
-      showAlert("Erro", "Utilizador não autenticado", [
-        { text: "OK", onPress: () => {} }
-      ]);
+const importData = async () => {
+  if (!currentUser) {
+    showAlert("Erro", "Utilizador não autenticado", [{ text: "OK", onPress: () => {} }]);
+    return;
+  }
+
+  try {
+    // Mostrar alerta com spinner durante a importação
+    showAlert(
+      "Importação",
+      "A processar o ficheiro. Isto pode demorar algum tempo...",
+      [{ text: "Cancelar", style: "cancel", onPress: () => {} }],
+      true // Ativar spinner
+    );
+
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ["application/json"],
+      multiple: false
+    });
+
+    if (result.canceled || !result.assets || result.assets.length === 0) {
+      showAlert("Importação", "Operação cancelada ou nenhum ficheiro selecionado.", [{ text: "OK", onPress: () => {} }]);
       return;
     }
-    
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ["application/json", "text/plain"],
-        multiple: false
-      });
 
-      if (result.canceled) {
-        showAlert("Importação", "Operação cancelada.", [
-          { text: "OK", onPress: () => {} }
-        ]);
-        return;
-      }
+    const fileContent = await FileSystem.readAsStringAsync(result.assets[0].uri);
+    const parsedData = JSON.parse(fileContent);
 
-      const fileContent = await FileSystem.readAsStringAsync(result.assets[0].uri);
-      const parsedData = JSON.parse(fileContent);
-
-      if (!Array.isArray(parsedData)) {
-        showAlert("Erro", "O ficheiro deve conter uma lista de itens.", [
-          { text: "OK", onPress: () => {} }
-        ]);
-        return;
-      }
-
-      // Importar cada item para o Firebase
-      const importPromises = parsedData.map(async (item) => {
-        // Adicionar cada item ao Firebase
-        // Remover campos que possam causar conflitos
-        const { id, userId, createdAt, updatedAt, ...importableData } = item;
-        
-        // Adicionar ao Firebase usando o serviço
-        return addInventoryItem({
-          ...importableData,
-          // Garantir que a quantidade seja uma string
-          quantity: importableData.quantity?.toString() || "0"
-        }, importableData.photo || "");
-      });
-
-      await Promise.all(importPromises);
-
-      // Adicionar ao histórico
-      await addToHistory({
-        name: "Importação",
-        category: "Sistema",
-        quantity: parsedData.length.toString(),
-        action: 'import'
-      });
-
-      showAlert("Sucesso", `${parsedData.length} itens importados com sucesso!`, [
-        { text: "OK", onPress: () => {} }
-      ]);
-
-    } catch (error) {
-      console.error("Erro ao importar dados:", error);
-      showAlert("Erro", "Selecione um ficheiro JSON válido.", [
-        { text: "OK", onPress: () => {} }
-      ]);
+    if (!Array.isArray(parsedData)) {
+      showAlert("Erro", "O ficheiro JSON deve conter uma lista (array) de Produtos.", [{ text: "OK", onPress: () => {} }]);
+      return;
     }
-  };
+
+    if (parsedData.length === 0) {
+      showAlert("Informação", "O ficheiro de importação está vazio.", [{ text: "OK", onPress: () => {} }]);
+      return;
+    }
+
+    // Verificar tamanho total dos dados antes de prosseguir
+    const totalDataSize = JSON.stringify(parsedData).length;
+    const MAX_RECOMMENDED_SIZE = 10 * 1024 * 1024; // 10MB
+    
+    if (totalDataSize > MAX_RECOMMENDED_SIZE) {
+      showAlert(
+        "Aviso",
+        "O ficheiro é muito grande (mais de 10MB). Recomendamos dividir em ficheiros menores ou remover fotos grandes.",
+        [
+          { text: "Cancelar", style: "cancel", onPress: () => {} },
+          {
+            text: "Continuar Mesmo Assim",
+            style: "destructive",
+            onPress: () => {
+              // Garantir que currentUser não é nulo aqui também
+              if (currentUser) {
+                processImport(parsedData, currentUser.uid);
+              }
+            }
+          }
+        ]
+      );
+    } else {
+      await processImport(parsedData, currentUser.uid);
+    }
+  } catch (error) {
+    console.error("Erro detalhado ao importar dados:", error);
+    let errorMessage = "Falha ao importar dados.";
+    if (error instanceof Error) {
+      errorMessage += ` Detalhe: ${error.message}`;
+    }
+    showAlert("Erro na Importação", errorMessage, [{ text: "OK", onPress: () => {} }]);
+  }
+};
+
+// Função auxiliar para processar a importação com tipos adequados
+const processImport = async (parsedData: any[], userId: string) => {
+  try {
+    const itemsCollectionRef = collection(db, 'inventory');
+    const historyCollectionRef = collection(db, 'itemHistory');
+    
+    // Constantes para controlo de lotes
+    const MAX_ITEMS_PER_BATCH = 20; // Reduzido para evitar sobrecarga
+    const MAX_BASE64_SIZE = 600 * 1024; // 100KB máximo para fotos base64
+    
+    let importedCount = 0;
+    let skippedPhotos = 0;
+    
+    // Processar em pequenos lotes
+    for (let batchIndex = 0; batchIndex < parsedData.length; batchIndex += MAX_ITEMS_PER_BATCH) {
+      let currentBatch = writeBatch(db);
+      let operationsInCurrentBatch = 0;
+      
+      // Processar um lote de itens
+      const endIndex = Math.min(batchIndex + MAX_ITEMS_PER_BATCH, parsedData.length);
+      
+      for (let i = batchIndex; i < endIndex; i++) {
+        const itemDataFromFile = parsedData[i];
+        
+        // Remover campos que não devem ser importados diretamente
+        const { id, userId: oldUserId, createdAt, updatedAt, ...importableData } = itemDataFromFile;
+        
+        // Verificar e limitar tamanho da foto base64
+        let photoData = importableData.photo;
+        if (photoData && typeof photoData === 'string' && photoData.length > MAX_BASE64_SIZE) {
+          // Foto muito grande, não importar
+          photoData = null;
+          skippedPhotos++;
+        }
+        
+        const newItemDocRef = doc(itemsCollectionRef);
+        
+        const newItemPayload = {
+          ...importableData,
+          quantity: importableData.quantity?.toString() || "0",
+          photo: photoData,
+          photoUrl: importableData.photoUrl || null,
+          userId: userId,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+        
+        currentBatch.set(newItemDocRef, newItemPayload);
+        operationsInCurrentBatch++;
+        
+        // Adicionar entrada de histórico
+        const newHistoryDocRef = doc(historyCollectionRef);
+        currentBatch.set(newHistoryDocRef, {
+          name: importableData.name || "Produto Importado",
+          category: importableData.category || "Importado",
+          quantity: newItemPayload.quantity,
+          action: 'add',
+          timestamp: serverTimestamp(),
+          userId: userId,
+          itemId: newItemDocRef.id
+        });
+        operationsInCurrentBatch++;
+      }
+      
+      // Enviar o lote atual
+      await currentBatch.commit();
+      importedCount += (endIndex - batchIndex);
+      
+      // Atualizar o alerta de progresso
+      showAlert(
+        "Importação em Progresso",
+        `Processados ${importedCount} de ${parsedData.length} produtos...`,
+        [],
+        true // Manter spinner
+      );
+      
+      // Pausa entre lotes para evitar sobrecarga
+      if (batchIndex + MAX_ITEMS_PER_BATCH < parsedData.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    // Adicionar entrada de histórico geral
+    await addToHistory({
+      name: "Importação em Lote",
+      category: "Sistema",
+      quantity: parsedData.length.toString(),
+      action: 'import'
+    });
+    
+    let successMessage = `${importedCount} produtos foram importados com sucesso!`;
+    if (skippedPhotos > 0) {
+      successMessage += ` (${skippedPhotos} fotos foram ignoradas por serem muito grandes)`;
+    }
+    
+    showAlert("Sucesso", successMessage, [{ text: "OK", onPress: () => {} }]);
+  } catch (error) {
+    console.error("Erro durante o processamento da importação:", error);
+    throw error;
+  }
+};
 
   // Resetar inventário - modificado para Firebase
   const resetInventory = async () => {
@@ -692,7 +833,7 @@ const updateItemThreshold = async (index: number, newThresholdValue: string | un
               color="#fff"
             />
             <Text style={styles.actionButtonText}>
-              {showCustomThresholds ? "Ocultar Exceções" : "Mostrar Exceções por Item"}
+              {showCustomThresholds ? "Ocultar Exceções" : "Mostrar Exceções por Produto"}
             </Text>
           </TouchableOpacity>
 
@@ -711,100 +852,96 @@ const updateItemThreshold = async (index: number, newThresholdValue: string | un
           </TouchableOpacity>
           
           {showCustomThresholds && inventory.length > 0 && (
-            <View style={[
-              styles.customThresholdsContainer,
-              currentTheme === "dark" ? { backgroundColor: '#333' } : { backgroundColor: '#f0f0f0' }
-            ]}>
-              <Text style={[styles.customThresholdsTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                Exceções para Itens Específicos
-              </Text>
-              <Text style={[styles.customThresholdsDesc, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                Ative o interruptor para definir um valor específico para cada item
-              </Text>
-             
-              {/* Substitua a View com altura fixa por uma ScrollView */}
-              <ScrollView
-                style={{maxHeight: 300}}
-                nestedScrollEnabled={true}
-                contentContainerStyle={{paddingBottom: 10}}
-              >
-                {inventory.map((item, index) => {
-                  const itemThresholdValue = item.lowStockThreshold;
-const hasCustomThreshold = typeof itemThresholdValue === 'string' && itemThresholdValue.trim() !== "";
-
-return (
-  <View key={`${item.id || index}`} style={[
-    styles.itemContainer,
-    {borderBottomColor: currentTheme === "dark" ? '#444' : '#e0e0e0'}
+  <View style={[
+    styles.customThresholdsContainer,
+    currentTheme === "dark" ? { backgroundColor: '#333' } : { backgroundColor: '#f0f0f0' }
   ]}>
-    <View style={styles.itemInfo}>
-      <Text style={[styles.itemName, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-        {item.name}
-      </Text>
-      <Text style={[styles.itemCategory, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-        {item.category || 'Sem categoria'} (Quantidade: {item.quantity})
-      </Text>
-    </View>
-    
-    <View style={styles.thresholdControls}>
-      <Switch
-        value={hasCustomThreshold} // << CONDIÇÃO ATUALIZADA
-        onValueChange={(value) => {
-          if (value) { 
-            // Ao LIGAR o Switch:
-            // Se não havia valor customizado ou era uma string vazia, usa o globalThreshold como ponto de partida.
-            // Se já havia um valor customizado válido, o TextInput já o terá, e esta chamada apenas "confirma".
-            const thresholdParaAtivar = (typeof item.lowStockThreshold === 'string' && item.lowStockThreshold.trim() !== "") 
-                                        ? item.lowStockThreshold 
-                                        : globalThreshold;
-            updateItemThreshold(index, thresholdParaAtivar);
-          } else { 
-            // Ao DESLIGAR o Switch:
-            updateItemThreshold(index, undefined); // Envia undefined para sinalizar remoção
-          }
-        }}
-      />
-      
-      {/* Mostra o TextInput apenas se o Switch estiver ligado (hasCustomThreshold) */}
-      {hasCustomThreshold && (
-        <TextInput
-          style={[
-            styles.thresholdInput,
-            currentTheme === "dark" ? { backgroundColor: '#444', color: '#fff' } : { backgroundColor: '#f0f0f0', color: '#333' }
-          ]}
-          // value deve ser item.lowStockThreshold, que será uma string se hasCustomThreshold for true
-          value={item.lowStockThreshold || ""} 
-          onChangeText={(text) => {
-            // Permite que o utilizador limpe o campo, mas a validação final trata string vazia.
-            updateItemThreshold(index, text); 
-          }}
-          onBlur={() => {
-            // Se o campo estiver vazio ao perder o foco e o switch ainda estiver ligado,
-            // redefina para o globalThreshold ou para um valor válido.
-            // A validação em updateItemThreshold já trata strings vazias com validatePositiveInteger.
-            if (item.lowStockThreshold !== undefined && item.lowStockThreshold.trim() === "") {
-                 updateItemThreshold(index, globalThreshold); // Ou "" para permitir que o utilizador decida.
-                                                              // A validatePositiveInteger tratará "" como "".
-            } else if (item.lowStockThreshold !== undefined) {
-                // Revalida caso o utilizador tenha deixado algo inválido que não seja vazio
-                updateItemThreshold(index, validatePositiveInteger(item.lowStockThreshold));
-            }
-          }}
-          keyboardType="numeric"
-          placeholder={globalThreshold} // Mostra o global como placeholder
-        />
-      )}
-    </View>
-  </View>
-);
-                })}
-              </ScrollView>
+    <Text style={[styles.customThresholdsTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+      Exceções para Produtos Específicos
+    </Text>
+    <Text style={[styles.customThresholdsDesc, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+      Ative o interruptor para definir um valor específico para cada produto
+    </Text>
+   
+    {/* Substitua a View com altura fixa por uma ScrollView */}
+    <ScrollView
+      style={{maxHeight: 300}}
+      nestedScrollEnabled={true}
+      contentContainerStyle={{paddingBottom: 10}}
+    >
+      {inventory.map((item, index) => {
+        // Determinar se o item tem um threshold personalizado
+        const hasCustomThreshold = item.lowStockThreshold !== undefined && item.lowStockThreshold !== null && item.lowStockThreshold !== "";
+        
+        return (
+          <View key={`${item.id || index}`} style={[
+            styles.itemContainer,
+            {borderBottomColor: currentTheme === "dark" ? '#444' : '#e0e0e0'}
+          ]}>
+            <View style={styles.itemInfo}>
+              <Text style={[styles.itemName, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+                {item.name}
+              </Text>
+              <Text style={[styles.itemCategory, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+                {item.category || 'Sem categoria'} (Quantidade: {item.quantity})
+              </Text>
             </View>
-          )}
+            
+            <View style={styles.thresholdControls}>
+              <Switch
+                value={hasCustomThreshold}
+                onValueChange={(value) => {
+                  if (value) {
+                    // Ao ativar o switch, definir o threshold para o valor global como ponto de partida
+                    updateItemThreshold(index, globalThreshold);
+                  } else {
+                    // Ao desativar o switch, remover o threshold personalizado
+                    updateItemThreshold(index, undefined);
+                  }
+                }}
+                trackColor={{ false: "#767577", true: "#81b0ff" }}
+                thumbColor={hasCustomThreshold ? "#3498db" : "#f4f3f4"}
+                ios_backgroundColor="#3e3e3e"
+              />
+              
+              {hasCustomThreshold && (
+  <TextInput
+    style={[
+      styles.thresholdInput,
+      currentTheme === "dark"
+        ? { backgroundColor: '#444', color: '#fff', borderColor: '#555' }
+        : { backgroundColor: '#f0f0f0', color: '#333', borderColor: '#ddd' }
+    ]}
+    value={item.lowStockThreshold || ''} // Garantir que nunca seja undefined
+    onChangeText={(text) => {
+      // Permitir texto vazio sem validação imediata
+      setInventory(prevInventory =>
+        prevInventory.map((prevItem, i) =>
+          i === index ? { ...prevItem, lowStockThreshold: text } : prevItem
+        )
+      );
+    }}
+    onBlur={() => {
+      // Ao perder o foco, validar e atualizar no Firebase
+      const validatedText = validatePositiveInteger(item.lowStockThreshold || '');
+      updateItemThreshold(index, validatedText === '' ? undefined : validatedText);
+    }}
+    keyboardType="numeric"
+    placeholder={globalThreshold}
+    placeholderTextColor={currentTheme === "dark" ? "#aaa" : "#999"}
+  />
+)}
+            </View>
+          </View>
+        );
+      })}
+    </ScrollView>
+  </View>
+)}
          
           {showCustomThresholds && inventory.length === 0 && (
             <Text style={[styles.emptyInventory, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-              Não existem itens no inventário
+              Não existem Produtos no inventário
             </Text>
           )}
         </View>
@@ -1105,12 +1242,82 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     textAlign: 'center',
   },
+
+  customThresholdsContainer: {
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 10,
+    marginBottom: 15,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  
+  customThresholdsTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  
+  customThresholdsDesc: {
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center',
+    opacity: 0.8,
+  },
+  
+  itemContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+  },
+  
+  itemInfo: {
+    flex: 3,
+    paddingRight: 10,
+  },
+  
+  itemName: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  
+  itemCategory: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  
+  thresholdControls: {
+    flex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  
+  thresholdInput: {
+    width: 60,
+    height: 40,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    textAlign: 'center',
+    fontSize: 16,
+  },
+  
   toggleButton: {
     backgroundColor: '#2980b9',
     padding: 16,
     borderRadius: 12,
-    marginTop: 5,
-    marginBottom: 10,
+    marginTop: 10,
+    marginBottom: 15,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1121,61 +1328,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
   },
-  customThresholdsContainer: {
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 5,
-  },
-  customThresholdsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 5,
-    textAlign: 'center',
-  },
-  customThresholdsDesc: {
-    fontSize: 14,
-    marginBottom: 15,
-    textAlign: 'center',
-    opacity: 0.7,
-  },
-  itemContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    paddingHorizontal: 5,
-    borderBottomWidth: 1,
-  },
-  itemInfo: {
-    flex: 3,
-  },
-  itemName: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  itemCategory: {
-    fontSize: 14,
-    opacity: 0.7,
-  },
-  thresholdControls: {
-    flex: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 10,
-  },
-  thresholdInput: {
-    width: 60,
-    height: 40,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    textAlign: 'center',
-  },
+  
   emptyInventory: {
     textAlign: 'center',
     fontSize: 16,
     marginVertical: 20,
     fontStyle: 'italic',
+    opacity: 0.7,
   },
   historyContainer: {
     borderRadius: 12,

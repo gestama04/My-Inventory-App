@@ -570,72 +570,69 @@ export default function ItemDetailsScreen() {
   }, []);
 
   // Carrega o item quando o componente é montado
-  useEffect(() => {
-    const loadItem = async () => {
-      try {
-        setLoading(true);
-        const { id } = params;
-        
-        if (!id || typeof id !== 'string') {
-          console.error("ID do item não fornecido");
-          showAlert('Erro', 'ID do item não fornecido', [
-            { text: 'OK', onPress: () => router.back() }
-          ]);
-          setLoading(false); 
-          return;
-        }
-        
-        console.log("A carregar item com ID:", id);
-        
-        // Carregar diretamente do Firestore para garantir dados atualizados
-        if (typeof id === 'string') {
-          const docRef = doc(db, 'inventory', id);
-          const docSnap = await getDoc(docRef);
-          
-          if (!docSnap.exists()) {
-            console.error("Item não encontrado");
-            showAlert('Erro', 'Item não encontrado', [
-              { text: 'OK', onPress: () => router.back() }
-            ]);
-            return;
-          }
-          
-          const itemData = { id: docSnap.id, ...docSnap.data() } as Item;
+useEffect(() => {
+  const loadItem = async () => {
+    try {
+      setLoading(true);
+      const { id } = params;
+      
+      if (!id || typeof id !== 'string') {
+        console.error("ID do item não fornecido");
+        showAlert('Erro', 'ID do item não fornecido', [
+          { text: 'OK', onPress: () => router.back() }
+        ]);
+        setLoading(false); 
+        return;
+      }
+      
+      console.log("A carregar item com ID:", id);
+      
+      // Usar a função getInventoryItem que já foi modificada para combinar quantidades
+      if (typeof id === 'string') {
+        try {
+          const itemData = await getInventoryItem(id);
           console.log("Item carregado:", itemData);
           
           setItem(itemData);
           setDescription(itemData.description || '');
           if (itemData.category) {
-          try {
-            console.log(`Buscando ícone para categoria: ${itemData.category}`);
-            const iconName = await CategoryIconService.getIconForCategory(itemData.category);
-            setCategoryIconName(iconName);
-            console.log(`Ícone definido para ${itemData.category}: ${iconName}`);
-          } catch (iconError) {
-            console.error("Erro ao buscar ícone da categoria:", iconError);
-            setCategoryIconName(CategoryIconService.DEFAULT_ICON); // Usa ícone padrão em caso de erro
+            try {
+              console.log(`Buscando ícone para categoria: ${itemData.category}`);
+              const iconName = await CategoryIconService.getIconForCategory(itemData.category);
+              setCategoryIconName(iconName);
+              console.log(`Ícone definido para ${itemData.category}: ${iconName}`);
+            } catch (iconError) {
+              console.error("Erro ao buscar ícone da categoria:", iconError);
+              setCategoryIconName(CategoryIconService.DEFAULT_ICON); // Usa ícone padrão em caso de erro
+            }
+          } else {
+            setCategoryIconName(CategoryIconService.DEFAULT_ICON); // Usa ícone padrão se não houver categoria
           }
-        } else {
-          setCategoryIconName(CategoryIconService.DEFAULT_ICON); // Usa ícone padrão se não houver categoria
-        }
-        } else {
-          console.error("ID inválido:", id);
-          showAlert('Erro', 'ID do item inválido', [
+        } catch (error) {
+          console.error("Item não encontrado:", error);
+          showAlert('Erro', 'Item não encontrado', [
             { text: 'OK', onPress: () => router.back() }
           ]);
+          return;
         }
-      } catch (error) {
-        console.error('Erro ao carregar item:', error);
-        showAlert('Erro', 'Ocorreu um erro ao carregar os detalhes do item', [
+      } else {
+        console.error("ID inválido:", id);
+        showAlert('Erro', 'ID do item inválido', [
           { text: 'OK', onPress: () => router.back() }
         ]);
-      } finally {
-        setLoading(false);
       }
-    };
-    
-    loadItem();
-  }, [params.id]); // Adicionar params.id como dependência
+    } catch (error) {
+      console.error('Erro ao carregar item:', error);
+      showAlert('Erro', 'Ocorreu um erro ao carregar os detalhes do item', [
+        { text: 'OK', onPress: () => router.back() }
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  loadItem();
+}, [params.id]);  // Adicionar params.id como dependência
 
   // Função para salvar a descrição
   const saveDescription = useCallback(async (newDescription: string) => {

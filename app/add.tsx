@@ -354,7 +354,7 @@ export default function AddItemScreen() {
   const handleAddItem = async () => {
     // Verificar se o Utilizador está autenticado
     if (!auth.currentUser) {
-      showAlert("Erro", "Você precisa estar autenticado para adicionar itens.", [
+      showAlert("Erro", "Você precisa de estar autenticado para adicionar produtos.", [
         { text: "OK", onPress: () => {} }
       ]);
       return;
@@ -374,7 +374,7 @@ export default function AddItemScreen() {
     
     try {
       setIsLoading(true);
-      showAlert("A processar", "A guardar item...", [], true);
+      showAlert("A processar", "A guardar produto...", [], true);
       
       // Criar o novo item
       const newItem = {
@@ -394,12 +394,12 @@ export default function AddItemScreen() {
       setSuggestedCategory("");
       setCapturedImageBase64("");
       
-      showAlert("Sucesso", "Item adicionado com sucesso!", [
+      showAlert("Sucesso", "Produto adicionado com sucesso!", [
         { text: "OK", onPress: () => router.replace("/inventory") }
       ]);
     } catch (error) {
-      console.error("Erro ao salvar item", error);
-      showAlert("Erro", "Ocorreu um erro ao salvar o item.", [
+      console.error("Erro ao salvar produto", error);
+      showAlert("Erro", "Ocorreu um erro ao salvar o produto.", [
         { text: "OK", onPress: () => {} }
       ]);
     } finally {
@@ -440,7 +440,7 @@ export default function AddItemScreen() {
           
           // Prompt melhorado com exemplos e regras mais explícitas
           const prompt = `
-            Classifique o item "${itemName}" em uma destas categorias específicas:
+            Classifique o produto "${itemName}" numa destas categorias específicas:
             ${predefinedCategories.join(", ")}
             
             Use português de Portugal (PT-PT) e não português brasileiro (PT-BR).

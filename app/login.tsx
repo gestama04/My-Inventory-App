@@ -57,62 +57,72 @@ export default function LoginScreen() {
     loadRememberMe();
   }, []);
 
-  const handleLogin = async () => {
-    if (!email || !password) {
-      showAlert('Erro', 'Por favor, preencha todos os campos', [
-        { text: 'OK', onPress: () => {} }
-      ]);
+const handleLogin = async () => {
+  if (!email || !password) {
+    showAlert('Erro', 'Por favor, preencha todos os campos', [
+      { text: 'OK', onPress: () => {} }
+    ]);
+    return;
+  }
+  setIsLoading(true);
+  try {
+    // Salvar email se "lembrar-me" estiver ativado
+    if (rememberMe) {
+      await AsyncStorage.setItem('savedEmail', email);
+    } else {
+      await AsyncStorage.removeItem('savedEmail');
+    }
+    
+    await login(email, password, rememberMe);
+    router.replace('/home' as any);
+  } catch (error: any) {
+    console.log('Erro de login:', error.code, error.message);
+    
+    // Verificar primeiro se é o erro de email não verificado
+    if (error.message === 'email-not-verified' || error.message.includes('email-not-verified')) {
+      showAlert(
+        'Email não verificado',
+        'Por favor, verifique seu email para confirmar o registro. Um novo email de verificação foi enviado.',
+        [{ text: 'OK', onPress: () => {} }]
+      );
       return;
     }
-    setIsLoading(true);
-    try {
-      // Salvar email se "lembrar-me" estiver ativado
-      if (rememberMe) {
-        await AsyncStorage.setItem('savedEmail', email);
-      } else {
-        await AsyncStorage.removeItem('savedEmail');
+    
+    let errorMessage = 'Falha ao fazer login. Verifique suas credenciais e tente novamente.';
+    
+    // Verificar o código de erro do Firebase
+    if (error.code) {
+      switch (error.code) {
+        case 'auth/user-not-found':
+          errorMessage = 'Utilizador não encontrado. Verifique o email ou registe-se.';
+          break;
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential':
+          errorMessage = 'Email ou password incorretos. Tente novamente.';
+          break;
+        case 'auth/invalid-email':
+          errorMessage = 'Email inválido. Por favor, verifique o formato do email.';
+          break;
+        case 'auth/user-disabled':
+          errorMessage = 'Esta conta foi desativada. Contacte o suporte.';
+          break;
+        case 'auth/too-many-requests':
+          errorMessage = 'Muitas tentativas de login. Tente novamente mais tarde.';
+          break;
+        case 'auth/network-request-failed':
+          errorMessage = 'Erro de conexão. Verifique a sua ligação à internet e tente novamente.';
+          break;
+        // Não incluir o error.message no caso padrão
       }
-      
-      await login(email, password, rememberMe);
-      router.replace('/home' as any);
-    } catch (error: any) {
-      console.log('Erro de login:', error.code, error.message);
-      
-      let errorMessage = 'Falha ao fazer login. Verifique suas credenciais e tente novamente.';
-      
-      // Verificar o código de erro do Firebase
-      if (error.code) {
-        switch (error.code) {
-          case 'auth/user-not-found':
-            errorMessage = 'Utilizador não encontrado. Verifique o email ou registe-se.';
-            break;
-          case 'auth/wrong-password':
-          case 'auth/invalid-credential':
-            errorMessage = 'Email ou password incorretos. Tente novamente.';
-            break;
-          case 'auth/invalid-email':
-            errorMessage = 'Email inválido. Por favor, verifique o formato do email.';
-            break;
-          case 'auth/user-disabled':
-            errorMessage = 'Esta conta foi desativada. Contacte o suporte.';
-            break;
-          case 'auth/too-many-requests':
-            errorMessage = 'Muitas tentativas de login. Tente novamente mais tarde.';
-            break;
-          case 'auth/network-request-failed':
-            errorMessage = 'Erro de conexão. Verifique a sua ligação à internet e tente novamente.';
-            break;
-          // Não incluir o error.message no caso padrão
-        }
-      }
-      
-      showAlert('Erro de Login', errorMessage, [
-        { text: 'OK', onPress: () => {} }
-      ]);
-    } finally {
-      setIsLoading(false);
     }
-  };
+    
+    showAlert('Erro de Login', errorMessage, [
+      { text: 'OK', onPress: () => {} }
+    ]);
+  } finally {
+    setIsLoading(false);
+  }
+};
   
   const handleForgotPassword = async () => {
     if (!forgotPasswordEmail) {

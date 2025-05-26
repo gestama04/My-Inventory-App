@@ -28,7 +28,9 @@ import {
   where,
   getDocs,
   doc,
-  getDoc
+  getDoc,
+  updateDoc,
+  serverTimestamp
 } from 'firebase/firestore';
 import { deleteInventoryItem } from '../inventory-service';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
@@ -64,10 +66,163 @@ export default function InventoryScreen() {
   const [loading, setLoading] = useState(true);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [bulkActionModalVisible, setBulkActionModalVisible] = useState(false);
+  const [bulkQuantityChange, setBulkQuantityChange] = useState('');
   const params = useLocalSearchParams();
 
+const toggleMultiSelectMode = () => {
+  setMultiSelectMode(!multiSelectMode);
+  // Limpar seleções ao sair do modo
+  if (multiSelectMode) {
+    setSelectedItems(new Set());
+  }
+};
 
+const toggleItemSelection = (itemId?: string) => {
+  if (!itemId) return;
+  
+  const newSelection = new Set(selectedItems);
+  if (newSelection.has(itemId)) {
+    newSelection.delete(itemId);
+  } else {
+    newSelection.add(itemId);
+  }
+  setSelectedItems(newSelection);
+};
+
+// Selecionar todos os itens visíveis
+const selectAllItems = () => {
+  const allVisibleItemIds = filteredAndSortedItems
+    .filter(item => item.id)
+    .map(item => item.id as string);
+  
+  setSelectedItems(new Set(allVisibleItemIds));
+};
+
+// Limpar todas as seleções
+const clearSelection = () => {
+  setSelectedItems(new Set());
+};
+
+
+// Excluir itens selecionados
+const deleteSelectedItems = async () => {
+  if (selectedItems.size === 0) return;
+  
+  try {
+    // Mostrar alerta com spinner
+    showAlert(
+      "A Processar",
+      "A excluir os produtos selecionados...",
+      [],
+      true // mostrar spinner
+    );
+    
+    const deletePromises = Array.from(selectedItems).map(id =>
+      deleteInventoryItem(id)
+    );
+    
+    await Promise.all(deletePromises);
+    
+    // Atualizar a UI removendo os itens excluídos
+    const updatedItems = items.filter(item =>
+      !item.id || !selectedItems.has(item.id)
+    );
+    
+    setItems(updatedItems);
+    setFilteredInventory(updatedItems);
+    setSelectedItems(new Set());
+    
+    // Fechar modo de seleção múltipla
+    setMultiSelectMode(false);
+    
+    showAlert("Sucesso", `${selectedItems.size} produtos foram excluídos com sucesso!`, [
+      { text: "OK", onPress: () => {} }
+    ]);
+  } catch (error) {
+    console.error("Erro ao excluir produtos em lote:", error);
+    showAlert("Erro", "Não foi possível excluir alguns produtos. Tente novamente.", [
+      { text: "OK", onPress: () => {} }
+    ]);
+  }
+};
+
+
+// Atualizar quantidade dos itens selecionados
+const updateSelectedItemsQuantity = () => {
+  if (selectedItems.size === 0) {
+    showAlert("Erro", "Nenhum item selecionado", [
+      { text: "OK", onPress: () => {} }
+    ]);
+    return;
+  }
+
+  // Usar o showAlert para pedir a nova quantidade
+  showAlert(
+    "Atualizar Quantidade",
+    `Defina a nova quantidade para ${selectedItems.size} produtos selecionados`,
+    [
+      { text: "Cancelar", style: "cancel", onPress: () => {} },
+      {
+        text: "Atualizar",
+        onPress: async (inputValue) => {
+          if (!inputValue || isNaN(parseInt(inputValue)) || parseInt(inputValue) < 0) {
+            showAlert("Erro", "Por favor, insira uma quantidade válida (número positivo).", [
+              { text: "OK", onPress: () => {} }
+            ]);
+            return;
+          }
+
+          const newQuantity = parseInt(inputValue);
+          
+          try {
+            // Mostrar alerta com spinner
+            showAlert(
+              "Processando",
+              "Atualizando quantidades...",
+              [],
+              true // mostrar spinner
+            );
+            
+            const updatePromises = Array.from(selectedItems).map(async (id) => {
+              const itemRef = doc(db, 'inventory', id);
+              return updateDoc(itemRef, {
+                quantity: newQuantity.toString(),
+                updatedAt: serverTimestamp()
+              });
+            });
+            
+            await Promise.all(updatePromises);
+            
+            // Atualizar a UI com as novas quantidades
+            const updatedItems = items.map(item => {
+              if (item.id && selectedItems.has(item.id)) {
+                return { ...item, quantity: newQuantity.toString() };
+              }
+              return item;
+            });
+            
+            setItems(updatedItems);
+            setFilteredInventory(updatedItems);
+            
+            showAlert("Sucesso", `Quantidade atualizada para ${selectedItems.size} produtos!`, [
+              { text: "OK", onPress: () => {} }
+            ]);
+          } catch (error) {
+            console.error("Erro ao atualizar quantidades em lote:", error);
+            showAlert("Erro", "Não foi possível atualizar as quantidades. Tente novamente.", [
+              { text: "OK", onPress: () => {} }
+            ]);
+          }
+        },
+        inputType: "numeric",
+        defaultValue: ""
+      }
+    ]
+  );
+};
 
   const handleItemPress = (item: Item) => {
     console.log("Item pressed:", item);
@@ -197,32 +352,54 @@ useEffect(() => {
   }, []);
 
   const handleItemLongPress = (item: Item) => {
-    showAlert(
-      item.name,
-      "O que deseja fazer com este item?",
-      [
-        { text: "Cancelar", style: "cancel", onPress: () => {} },
-        { text: "Editar", onPress: () => handleEditItem(item) },
-        {
-          text: "Remover",
-          style: "destructive",
-          onPress: () => handleRemoveItem(item),
-        },
-      ]
-    );
-  };
+  // Se já estiver em modo de seleção múltipla, apenas alterna a seleção do item
+  if (multiSelectMode) {
+    toggleItemSelection(item.id);
+    return;
+  }
+  
+  // Caso contrário, mostra o menu de contexto normal
+  showAlert(
+    item.name,
+    "O que deseja fazer com este produto?",
+    [
+      { text: "Cancelar", style: "cancel", onPress: () => {} },
+      { 
+        text: "Selecionar Vários", 
+        onPress: () => {
+          setMultiSelectMode(true);
+          if (item.id) {
+            setSelectedItems(new Set([item.id]));
+          }
+        }
+      },
+      { text: "Editar", onPress: () => handleEditItem(item) },
+      {
+        text: "Remover",
+        style: "destructive",
+        onPress: () => handleRemoveItem(item),
+      },
+    ]
+  );
+};
 
-  const isLowStock = (item: Item): boolean => {
-    const numQuantity = parseInt(item.quantity.toString());
+const isLowStock = (item: Item): boolean => {
+  const numQuantity = parseInt(item.quantity.toString());
 
-    if (item.lowStockThreshold !== undefined && item.lowStockThreshold !== "") {
-      const itemThreshold = parseInt(item.lowStockThreshold);
+  // Primeiro verificar se o item tem um threshold personalizado
+  if (item.lowStockThreshold !== undefined && item.lowStockThreshold !== "") {
+    const itemThreshold = parseInt(item.lowStockThreshold);
+    // Só considerar como estoque baixo se o threshold personalizado for maior que 0
+    if (!isNaN(itemThreshold) && itemThreshold > 0) {
       return numQuantity > 0 && numQuantity <= itemThreshold;
     }
-
-    const threshold = parseInt(globalLowStockThreshold);
-    return numQuantity > 0 && numQuantity <= threshold;
-  };
+  }
+  
+  // Se não tiver threshold personalizado ou for inválido, usar o global
+  const threshold = parseInt(globalLowStockThreshold);
+  // Só considerar como estoque baixo se o threshold global for maior que 0
+  return threshold > 0 && numQuantity > 0 && numQuantity <= threshold;
+};
 
   const isOutOfStock = (quantity: string | number): boolean => {
     return parseInt(quantity.toString()) === 0;
@@ -306,85 +483,189 @@ useEffect(() => {
     setShowSortOptions(false);
   };
 
-  useFocusEffect(
-    useCallback(() => {
-      const loadUserSettings = async () => {
+const fixDuplicateIds = async (items: Item[]): Promise<Item[]> => {
+  // Agrupar itens por ID
+  const itemsById: Record<string, Item[]> = {};
+  
+  items.forEach(item => {
+    if (item.id) {
+      if (!itemsById[item.id]) {
+        itemsById[item.id] = [];
+      }
+      itemsById[item.id].push(item);
+    }
+  });
+  
+
+  // Verificar e corrigir duplicatas
+  const userId = auth.currentUser?.uid;
+  const fixedItems: Item[] = [];
+  
+  for (const [id, duplicates] of Object.entries(itemsById)) {
+    if (duplicates.length > 1) {
+      console.log(`Encontrados ${duplicates.length} produtos com o mesmo ID: ${id}`);
+      
+      // Manter o primeiro item e combinar as quantidades
+      const baseItem = { ...duplicates[0] };
+      let totalQuantity = parseInt(baseItem.quantity.toString());
+      
+      // Somar as quantidades dos itens duplicados e excluí-los
+      for (let i = 1; i < duplicates.length; i++) {
+        const duplicate = duplicates[i];
+        totalQuantity += parseInt(duplicate.quantity.toString());
+        
+        // Excluir o item duplicado do Firestore
         try {
-          const userId = auth.currentUser?.uid;
-          if (!userId) return;
-          
-          const userSettingsDoc = await getDoc(doc(db, 'userSettings', userId));
-          if (userSettingsDoc.exists()) {
-            const settings = userSettingsDoc.data();
-            if (settings.globalLowStockThreshold) {
-              setGlobalLowStockThreshold(settings.globalLowStockThreshold);
-            }
+          if (duplicate.id) {
+            await deleteInventoryItem(duplicate.id);
+            console.log(`Item duplicado excluído: ${duplicate.id}`);
           }
         } catch (error) {
-          console.error("Erro ao carregar configurações do Utilizador:", error);
+          console.error(`Erro ao excluir item duplicado ${duplicate.id}:`, error);
         }
-      };
-
-      const loadItems = async () => {
-        setLoading(true);
-        try {
-          // Verificar se o Utilizador está autenticado
-          const userId = auth.currentUser?.uid;
-          if (!userId) {
-            setLoading(false);
-            return;
-          }
-
-          // Carregar inventário do Firestore
-          const q = query(collection(db, 'inventory'), where('userId', '==', userId));
-          const snapshot = await getDocs(q);
-          
-          const parsedItems: Item[] = [];
-          snapshot.forEach((doc) => {
-            parsedItems.push({ id: doc.id, ...doc.data() as Item });
-          });
-
-          setItems(parsedItems);
-          setFilteredInventory(parsedItems);
-        } catch (error) {
-          console.error("Erro ao carregar itens", error);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      loadUserSettings();
-      loadItems();
-    }, [])
-  );
-
-  const handleRemoveItem = async (itemToRemove: Item) => {
-    try {
-      if (!itemToRemove.id) {
-        showAlert("Erro", "ID do item não encontrado", [
-          { text: "OK", onPress: () => {} }
-        ]);
-        return;
       }
       
-      // Usar a função do serviço para deletar o item
-      await deleteInventoryItem(itemToRemove.id);
+      // Atualizar a quantidade do item base
+      baseItem.quantity = totalQuantity.toString();
       
-      // Atualizar a UI
-      const updatedItems = items.filter(item => item.id !== itemToRemove.id);
-      setItems(updatedItems);
-      setFilteredInventory(updatedItems);
+      // Atualizar o item no Firestore
+      try {
+        if (baseItem.id) {
+          await updateDoc(doc(db, 'inventory', baseItem.id), {
+            quantity: baseItem.quantity,
+            updatedAt: serverTimestamp()
+          });
+          console.log(`Item base atualizado: ${baseItem.id}, nova quantidade: ${baseItem.quantity}`);
+        }
+      } catch (error) {
+        console.error(`Erro ao atualizar item base ${baseItem.id}:`, error);
+      }
       
-      showAlert("Sucesso", "Item removido com sucesso!", [
-        { text: "OK", onPress: () => {} }
-      ]);
-    } catch (error) {
-      console.error("Erro ao remover item", error);
-      showAlert("Erro", "Não foi possível remover o item", [
-        { text: "OK", onPress: () => {} }
-      ]);
+      fixedItems.push(baseItem);
+    } else {
+      fixedItems.push(duplicates[0]);
     }
-  };
+  }
+  
+  return fixedItems;
+};
+
+useFocusEffect(
+  useCallback(() => {
+    const loadUserSettings = async () => {
+      try {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+        
+        const userSettingsDoc = await getDoc(doc(db, 'userSettings', userId));
+        if (userSettingsDoc.exists()) {
+          const settings = userSettingsDoc.data();
+          if (settings.globalLowStockThreshold) {
+            setGlobalLowStockThreshold(settings.globalLowStockThreshold);
+          }
+        }
+      } catch (error) {
+        console.error("Erro ao carregar configurações do Utilizador:", error);
+      }
+    };
+
+const loadItems = async () => {
+  setLoading(true);
+  try {
+    // Verificar se o Utilizador está autenticado
+    const userId = auth.currentUser?.uid;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+
+    // Carregar inventário do Firestore
+    const q = query(collection(db, 'inventory'), where('userId', '==', userId));
+    const snapshot = await getDocs(q);
+    
+    const parsedItems: Item[] = [];
+    snapshot.forEach((doc) => {
+      parsedItems.push({ id: doc.id, ...doc.data() as Item });
+    });
+
+    // Verificar e corrigir IDs duplicados
+    const fixedItems = await fixDuplicateIds(parsedItems);
+    
+    // Aplicar a função combineItems para juntar itens com o mesmo nome e categoria
+    const combinedItems = combineItems(fixedItems);
+    
+    setItems(combinedItems);
+    setFilteredInventory(combinedItems);
+  } catch (error) {
+    console.error("Erro ao carregar produtos", error);
+  } finally {
+    setLoading(false);
+  }
+};
+
+    loadUserSettings();
+    loadItems();
+  }, [])
+);
+
+const handleRemoveItem = async (itemToRemove: Item) => {
+  try {
+    if (!itemToRemove.id) {
+      showAlert("Erro", "ID do item não encontrado", [
+        { text: "OK", onPress: () => {} }
+      ]);
+      return;
+    }
+    
+    // Mostrar indicador de carregamento
+    showAlert(
+      "A Processar",
+      "A remover produto...",
+      [],
+      true // mostrar spinner
+    );
+    
+    // Obter todos os itens com o mesmo nome e categoria
+    const userId = auth.currentUser?.uid;
+    if (!userId) {
+      showAlert("Erro", "Utilizador não autenticado", [
+        { text: "OK", onPress: () => {} }
+      ]);
+      return;
+    }
+    
+    const q = query(
+      collection(db, 'inventory'),
+      where('userId', '==', userId),
+      where('name', '==', itemToRemove.name),
+      where('category', '==', itemToRemove.category)
+    );
+    
+    const snapshot = await getDocs(q);
+    
+    // Deletar cada item encontrado
+    const deletePromises = snapshot.docs.map(doc => deleteInventoryItem(doc.id));
+    await Promise.all(deletePromises);
+    
+    // Atualizar a UI
+    const updatedItems = items.filter(item =>
+      item.name !== itemToRemove.name ||
+      item.category !== itemToRemove.category
+    );
+    
+    setItems(updatedItems);
+    setFilteredInventory(updatedItems);
+    
+    showAlert("Sucesso", "Produto removido com sucesso!", [
+      { text: "OK", onPress: () => {} }
+    ]);
+  } catch (error) {
+    console.error("Erro ao remover produto", error);
+    showAlert("Erro", "Não foi possível remover o produto", [
+      { text: "OK", onPress: () => {} }
+    ]);
+  }
+};
 
   const handleEditItem = (itemToEdit: Item) => {
     router.replace({
@@ -497,6 +778,23 @@ const filteredAndSortedItems = items
     }
   });
 
+const seenIds = new Set();
+const uniqueFilteredItems = filteredAndSortedItems.filter(item => {
+  // If item has no ID, always include it with index-based key later
+  if (!item.id) return true;
+  
+  // If we've seen this ID before, filter it out
+  if (seenIds.has(item.id)) {
+    console.log(`Filtering out duplicate item with ID: ${item.id}`);
+    return false;
+  }
+  
+  // Otherwise, add to seen IDs and keep the item
+  seenIds.add(item.id);
+  return true;
+});
+
+
   const groupedItems = filteredAndSortedItems.reduce((acc, item) => {
     if (!acc[item.category]) acc[item.category] = [];
     acc[item.category].push(item);
@@ -524,16 +822,21 @@ const filteredAndSortedItems = items
     }
   });
 
+
+
 return (
   <View style={{ flex: 1 }}>
     <KeyboardAwareScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{ flexGrow: 1, paddingBottom: 80 }} // Adicione padding para o espaço dos botões
-      keyboardShouldPersistTaps="handled"
-      enableOnAndroid={true}
-      enableAutomaticScroll={true}
-      extraScrollHeight={Platform.OS === "ios" ? 90 : 30}
-    >
+  style={{ flex: 1 }}
+  contentContainerStyle={{ 
+    flexGrow: 1, 
+    paddingBottom: multiSelectMode ? 140 : 80 // Aumentar padding quando em modo de seleção múltipla
+  }}
+  keyboardShouldPersistTaps="handled"
+  enableOnAndroid={true}
+  enableAutomaticScroll={true}
+  extraScrollHeight={Platform.OS === "ios" ? 90 : 30}
+>
       <View style={[styles.container, currentTheme === "dark" ? styles.dark : styles.light]}>
         {/* Header with search and sort */}
         <View style={styles.headerContainer}>
@@ -582,6 +885,22 @@ return (
    sortType === 'oldestFirst' ? 'Mais Antigos' : 'Ordenar'}
 </Text>
           </TouchableOpacity>
+
+          {/* Botão de seleção múltipla (apenas ícone) */}
+  <TouchableOpacity
+    style={[
+      styles.iconButton,
+      currentTheme === "dark" ? styles.darkIconButton : styles.lightIconButton,
+      multiSelectMode && styles.activeIconButton
+    ]}
+    onPress={toggleMultiSelectMode}
+  >
+    <Ionicons
+      name={multiSelectMode ? "checkbox" : "checkbox-outline"}
+      size={24}
+      color={multiSelectMode ? "#3498db" : (currentTheme === "dark" ? "#fff" : "#333")}
+    />
+  </TouchableOpacity>
         </View>
 
         {/* Histórico de pesquisa */}
@@ -803,6 +1122,62 @@ return (
                                   )}
                                 </TouchableOpacity>
 
+<Modal
+  animationType="slide"
+  transparent={true}
+  visible={bulkActionModalVisible}
+  onRequestClose={() => setBulkActionModalVisible(false)}
+>
+  <TouchableOpacity
+    style={styles.modalOverlay}
+    activeOpacity={1}
+    onPress={() => setBulkActionModalVisible(false)}
+  >
+    <View style={[
+      styles.bulkActionModal,
+      currentTheme === "dark" ? styles.darkModal : styles.lightModal
+    ]}>
+      <Text style={[styles.modalTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+        Atualizar Quantidade
+      </Text>
+      
+      <Text style={[styles.modalSubtitle, currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+        Defina a nova quantidade para {selectedItems.size} produtos selecionados
+      </Text>
+      
+      <TextInput
+        style={[
+          styles.bulkQuantityInput,
+          currentTheme === "dark" 
+            ? { backgroundColor: '#333', color: '#fff', borderColor: '#444' } 
+            : { backgroundColor: '#f5f5f5', color: '#333', borderColor: '#ddd' }
+        ]}
+        value={bulkQuantityChange}
+        onChangeText={setBulkQuantityChange}
+        placeholder="Nova quantidade"
+        placeholderTextColor={currentTheme === "dark" ? "#aaa" : "#999"}
+        keyboardType="numeric"
+      />
+      
+      <View style={styles.modalButtonContainer}>
+        <TouchableOpacity
+          style={[styles.modalButton, styles.cancelButton]}
+          onPress={() => setBulkActionModalVisible(false)}
+        >
+          <Text style={styles.modalButtonText}>Cancelar</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[styles.modalButton, styles.confirmButton]}
+          onPress={updateSelectedItemsQuantity}
+        >
+          <Text style={styles.modalButtonText}>Atualizar</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </TouchableOpacity>
+</Modal>
+
                                 <TouchableOpacity
   style={[styles.sortOption, sortType === 'newestFirst' && styles.selectedOption]}
   onPress={() => handleSort('newestFirst')}
@@ -839,38 +1214,58 @@ return (
             <Ionicons name="basket-outline" size={64} color="#bdc3c7" />
             <Text style={[styles.emptyText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
               {searchQuery.trim() !== ''
-                ? "Nenhum item encontrado para esta pesquisa"
+                ? "Nenhum produto encontrado para esta pesquisa"
                 : "O seu inventário está vazio"}
             </Text>
           </View>
         ) : (
           <View style={styles.listContainer}>
-            {filteredAndSortedItems.map((item) => (
-              <TouchableHighlight
-                key={item.id || `${item.name}-${item.category}`}
-                underlayColor={currentTheme === "dark" ? "#444" : "#f0f0f0"}
-                onLongPress={() => handleItemLongPress(item)}
-                onPress={() => handleItemPress(item)}
-                delayLongPress={500}
-                style={styles.itemCardWrapper}
-              >
-                <View style={[
-                  styles.itemCard,
-                  currentTheme === "dark" ? styles.darkCard : styles.lightCard,
-                  isOutOfStock(item.quantity) && [
-                    styles.outOfStockCard,
-                    { borderLeftColor: '#e74c3c' }
-                  ],
-                  isLowStock(item) && [
-                    styles.lowStockCard,
-                    { borderLeftColor: '#f39c12' }
-                  ],
-                  !isOutOfStock(item.quantity) && !isLowStock(item) && [
-                    styles.inStockCard,
-                    { borderLeftColor: '#2ecc71' }
-                  ]
-                ]}>
-                  <View style={styles.itemCardContent}>
+            {uniqueFilteredItems.map((item, index) => (
+  <TouchableHighlight
+    key={`${item.id || 'no-id'}-${index}`}
+    underlayColor={currentTheme === "dark" ? "#444" : "#f0f0f0"}
+    onLongPress={() => multiSelectMode ? toggleItemSelection(item.id) : handleItemLongPress(item)}
+    onPress={() => {
+      if (multiSelectMode) {
+        toggleItemSelection(item.id);
+      } else {
+        handleItemPress(item);
+      }
+    }}
+    delayLongPress={500}
+    style={styles.itemCardWrapper}
+  >
+    <View style={[
+      styles.itemCard,
+      currentTheme === "dark" ? styles.darkCard : styles.lightCard,
+      isOutOfStock(item.quantity) && [
+        styles.outOfStockCard,
+        { borderLeftColor: '#e74c3c' }
+      ],
+      isLowStock(item) && [
+        styles.lowStockCard,
+        { borderLeftColor: '#f39c12' }
+      ],
+      !isOutOfStock(item.quantity) && !isLowStock(item) && [
+        styles.inStockCard,
+        { borderLeftColor: '#2ecc71' }
+      ],
+      // Adicionar estilo para itens selecionados
+      item.id && selectedItems.has(item.id) && styles.selectedItemCard
+    ]}>
+      {/* Indicador de seleção */}
+      {multiSelectMode && (
+        <View style={styles.selectionIndicator}>
+          <Ionicons 
+            name={item.id && selectedItems.has(item.id) ? "checkmark-circle" : "ellipse-outline"} 
+            size={24} 
+            color={item.id && selectedItems.has(item.id) ? "#3498db" : "#bbb"} 
+          />
+        </View>
+      )}
+      
+      {/* Conteúdo existente do item */}
+      <View style={[styles.itemCardContent, multiSelectMode && { marginLeft: 30 }]}>
                     {/* Show item photo if available, otherwise show category icon */}
                     {item.photoUrl ? (
                       <Image
@@ -941,10 +1336,10 @@ return (
                       )}
                       
                       {isLowStock(item) && (
-                        <View style={[styles.stockBadge, { backgroundColor: '#f39c12' }]}>
-                          <Text style={styles.badgeText}>Stock baixo</Text>
-                        </View>
-                      )}
+  <View style={[styles.stockBadge, { backgroundColor: '#f39c12' }]}>
+    <Text style={styles.badgeText}>Stock Baixo</Text>
+  </View>
+)}
                       
                       {!isOutOfStock(item.quantity) && !isLowStock(item) && (
                         <View style={[styles.stockBadge, { backgroundColor: '#2ecc71' }]}>
@@ -961,36 +1356,75 @@ return (
       </View>
     </KeyboardAwareScrollView>
     
+{multiSelectMode && (
+  <View style={[
+    styles.multiSelectBar,
+    currentTheme === "dark" ? styles.darkMultiSelectBar : styles.lightMultiSelectBar
+  ]}>
+    <View style={styles.multiSelectInfo}>
+      <Text style={[styles.multiSelectText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+        {selectedItems.size} produtos selecionados
+      </Text>
+    </View>
+    
+    <View style={styles.multiSelectActions}>
+      <TouchableOpacity 
+        style={styles.multiSelectButton}
+        onPress={selectAllItems}
+      >
+        <Ionicons name="checkmark-done-outline" size={22} color="#3498db" />
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        style={styles.multiSelectButton}
+        onPress={clearSelection}
+      >
+        <Ionicons name="close-circle-outline" size={22} color="#e74c3c" />
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        style={styles.multiSelectButton}
+        onPress={deleteSelectedItems}
+        disabled={selectedItems.size === 0}
+      >
+        <Ionicons name="trash-outline" size={22} color={selectedItems.size > 0 ? "#e74c3c" : "#bbb"} />
+      </TouchableOpacity>
+    </View>
+  </View>
+)}
+
     <View style={[
       styles.footerContainer,
       currentTheme === "dark" ? styles.darkFooter : styles.lightFooter,
       { position: 'absolute', bottom: 0, left: 0, right: 0 } // Torna o footer fixo
     ]}>
       <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
-          onPress={() => router.replace("/add")}
-        >
-          <Ionicons name="add-circle" size={24} color={currentTheme === "dark" ? "#fff" : "green"} />
-          <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-            Adicionar
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
-          onPress={handleClearInventory}
-        >
-          <Ionicons name="trash-bin" size={24} color={currentTheme === "dark" ? "#fff" : "red"} />
-          <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-            Eliminar Tudo
-          </Text>
-        </TouchableOpacity>
-      </View>
+  <TouchableOpacity
+    style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
+    onPress={() => router.replace("/add")}
+  >
+    <Ionicons name="add-circle" size={24} color={currentTheme === "dark" ? "#fff" : "green"} />
+    <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+      Adicionar
+    </Text>
+  </TouchableOpacity>
+  
+  <TouchableOpacity
+    style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
+    onPress={handleClearInventory}
+  >
+    <Ionicons name="trash-bin" size={24} color={currentTheme === "dark" ? "#fff" : "red"} />
+    <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+      Eliminar Tudo
+    </Text>
+  </TouchableOpacity>
+</View>
       
       <Text style={[styles.longPressHint, currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary]}>
-        Toque num produto para ver os seus detalhes.
-      </Text>
+  {multiSelectMode 
+    ? "Toque nos produtos para selecioná-los." 
+    : "Toque num produto para ver os seus detalhes. Toque longo para mais opções."}
+</Text>
     </View>
     
     {/* AlertComponent fora de tudo para não ser afetado pelo scroll */}
@@ -1034,6 +1468,108 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9f9f9',
     borderTopColor: '#ddd',
   },
+  selectedItemCard: {
+  borderWidth: 2,
+  borderColor: '#3498db',
+},
+selectionIndicator: {
+  position: 'absolute',
+  left: 10,
+  top: '50%',
+  marginTop: -12,
+  zIndex: 10,
+},
+multiSelectBar: {
+  position: 'absolute',
+  bottom: 95, // Posicionar acima do footer
+  left: 0,
+  right: 0,
+  height: 60,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  paddingHorizontal: 20,
+  borderTopWidth: 1,
+},
+darkMultiSelectBar: {
+  backgroundColor: '#1e1e1e',
+  borderTopColor: '#333',
+},
+lightMultiSelectBar: {
+  backgroundColor: '#f9f9f9',
+  borderTopColor: '#ddd',
+},
+multiSelectInfo: {
+  flex: 1,
+},
+multiSelectText: {
+  fontSize: 16,
+  fontWeight: '500',
+},
+multiSelectActions: {
+  flexDirection: 'row',
+  alignItems: 'center',
+},
+multiSelectButton: {
+  width: 40,
+  height: 40,
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginLeft: 10,
+},
+activeButton: {
+  borderWidth: 1,
+  borderColor: '#3498db',
+},
+bulkActionModal: {
+  width: '80%',
+  borderRadius: 15,
+  padding: 20,
+  alignItems: 'center',
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.25,
+  shadowRadius: 3.84,
+  elevation: 5,
+},
+
+modalSubtitle: {
+  fontSize: 14,
+  marginBottom: 20,
+  textAlign: 'center',
+},
+bulkQuantityInput: {
+  width: '100%',
+  height: 50,
+  borderRadius: 8,
+  borderWidth: 1,
+  paddingHorizontal: 15,
+  fontSize: 16,
+  marginBottom: 20,
+},
+modalButtonContainer: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  width: '100%',
+},
+modalButton: {
+  paddingVertical: 12,
+  paddingHorizontal: 20,
+  borderRadius: 8,
+  minWidth: 100,
+  alignItems: 'center',
+},
+cancelButton: {
+  backgroundColor: '#95a5a6',
+},
+confirmButton: {
+  backgroundColor: '#3498db',
+},
+modalButtonText: {
+  color: '#fff',
+  fontSize: 16,
+  fontWeight: '500',
+},
   searchContainer: {
     flex: 1,
     flexDirection: 'row',
@@ -1093,6 +1629,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
+  iconButton: {
+  width: 40,
+  height: 40,
+  borderRadius: 20,
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginLeft: 10,
+  borderWidth: 1,
+},
+darkIconButton: {
+  backgroundColor: '#2c3e50',
+  borderColor: '#34495e',
+},
+lightIconButton: {
+  backgroundColor: '#f5f5f5',
+  borderColor: '#ddd',
+},
+activeIconButton: {
+  backgroundColor: 'rgba(52, 152, 219, 0.2)',
+  borderColor: '#3498db',
+},
   listContainer: {
     padding: 20,
     paddingTop: 10,

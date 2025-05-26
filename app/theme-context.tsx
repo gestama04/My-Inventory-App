@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect, useContext, ReactNode } from "react";
 import { Appearance, ColorSchemeName } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Tipos de tema
 export type Theme = "light" | "dark" | "system";
@@ -14,22 +15,50 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 // Provedor do tema
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [theme, setTheme] = useState<Theme>("system");
+  const [theme, setThemeState] = useState<Theme>("system");
   const [currentTheme, setCurrentTheme] = useState<"light" | "dark">("light");
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Carregar a preferência de tema salva
+  useEffect(() => {
+    const loadThemePreference = async () => {
+      try {
+        const savedTheme = await AsyncStorage.getItem('themePreference');
+        if (savedTheme) {
+          setThemeState(savedTheme as Theme);
+        }
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Erro ao carregar preferência de tema:', error);
+        setIsLoading(false);
+      }
+    };
+
+    loadThemePreference();
+  }, []);
 
   // Atualiza o tema com base no sistema ou no estado escolhido
-  const updateTheme = (selectedTheme: Theme) => {
+  const updateTheme = async (selectedTheme: Theme) => {
     if (selectedTheme === "system") {
       const systemTheme = Appearance.getColorScheme() || "light";
       setCurrentTheme(systemTheme);
     } else {
       setCurrentTheme(selectedTheme);
     }
-    setTheme(selectedTheme);
+    setThemeState(selectedTheme);
+    
+    // Salvar a preferência no AsyncStorage
+    try {
+      await AsyncStorage.setItem('themePreference', selectedTheme);
+    } catch (error) {
+      console.error('Erro ao salvar preferência de tema:', error);
+    }
   };
 
   useEffect(() => {
-    updateTheme(theme);
+    if (!isLoading) {
+      updateTheme(theme);
+    }
 
     // Listener para mudanças no tema do sistema
     const subscription = Appearance.addChangeListener(({ colorScheme }) => {
@@ -39,7 +68,11 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => subscription.remove();
-  }, [theme]);
+  }, [theme, isLoading]);
+
+  if (isLoading) {
+    return null;
+  }
 
   return (
     <ThemeContext.Provider value={{ theme, currentTheme, setTheme: updateTheme }}>

@@ -353,7 +353,7 @@ const renderItemImage = (item: InventoryItem) => {
       }
     ]}>
       <Text style={[styles.itemListTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-        Itens com Stock Baixo
+        Produtos com Stock Baixo
       </Text>
       <TouchableOpacity onPress={() => setShowLowStockItems(false)}>
         <Ionicons name="close" size={24} color={currentTheme === "dark" ? "#fff" : "#333"} />
@@ -547,48 +547,66 @@ const renderItemImage = (item: InventoryItem) => {
       Adicionados Recentemente ({inventoryStats.recentlyAdded.length})
     </Text>
     
-    {inventoryStats.recentlyAdded.map((item, index) => {
-      // <<<<<<< COLOQUE O CONSOLE.LOG AQUI >>>>>>>>>
-      console.log(
-        `DEBUG RENDER HomeScreen: Item ${index} - Name: ${item.name}, ID: ${item.id}, Has photoUrl: ${!!item.photoUrl}, Has photo base64: ${!!item.photo}, Base64 Length: ${item.photo?.length || 0}, Category: ${item.category}`
-      );
-      // <<<<<<< FIM DO CONSOLE.LOG >>>>>>>>>
+    {/* Filter out duplicate items by ID before mapping */}
+    {(() => {
+      // Create a Set to track seen IDs
+      const seenIds = new Set();
+      
+      // Filter out duplicates
+      return inventoryStats.recentlyAdded
+        .filter((item, index) => {
+          // If no ID, use index as unique identifier
+          if (!item.id) return true;
+          
+          // If we've seen this ID before, filter it out
+          if (seenIds.has(item.id)) {
+            console.log(`Filtering out duplicate recent item with ID: ${item.id}`);
+            return false;
+          }
+          
+          // Otherwise, add to seen IDs and keep the item
+          seenIds.add(item.id);
+          return true;
+        })
+        .map((item, index) => {
+          console.log(
+            `DEBUG RENDER HomeScreen: Item ${index} - Name: ${item.name}, ID: ${item.id}, Has photoUrl: ${!!item.photoUrl}, Has photo base64: ${!!item.photo}, Base64 Length: ${item.photo?.length || 0}, Category: ${item.category}`
+          );
 
-      return (
-        <TouchableOpacity
-          // É melhor usar um ID único do item para a key, se disponível
-          key={item.id || index} 
-          style={[styles.recentItemCard, currentTheme === "dark" ? styles.darkCard : styles.lightCard]}
-          onPress={() => {
-            if (item.id) {
-              router.push({
-                pathname: "/item-details",
-                params: { id: item.id }
-              } as any);
-            } else {
-              // Adicionar um log ou alerta se o item não tiver ID pode ser útil
-              console.warn("Tentativa de navegar para detalhes de item sem ID:", item);
-              // showAlert("Erro", "Não foi possível abrir os detalhes deste item (ID em falta).", [{text: "OK"}]);
-            }
-          }}
-        >
-          {renderItemImage(item)}
-          <View style={styles.recentItemDetails}>
-            <Text style={[styles.recentItemName, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-              {item.name}
-            </Text>
-            <Text style={styles.recentItemCategory}>
-              {item.category || "Sem categoria"}
-            </Text>
-          </View>
-          <View style={styles.recentItemQuantity}>
-            <Text style={styles.recentItemQuantityText}>
-              {item.quantity}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      );
-    })}
+          return (
+            <TouchableOpacity
+              // Use a combination of ID and index for the key to ensure uniqueness
+              key={`${item.id || 'no-id'}-${index}`} 
+              style={[styles.recentItemCard, currentTheme === "dark" ? styles.darkCard : styles.lightCard]}
+              onPress={() => {
+                if (item.id) {
+                  router.push({
+                    pathname: "/item-details",
+                    params: { id: item.id }
+                  } as any);
+                } else {
+                  console.warn("Tentativa de navegar para detalhes de item sem ID:", item);
+                }
+              }}
+            >
+              {renderItemImage(item)}
+              <View style={styles.recentItemDetails}>
+                <Text style={[styles.recentItemName, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+                  {item.name}
+                </Text>
+                <Text style={styles.recentItemCategory}>
+                  {item.category || "Sem categoria"}
+                </Text>
+              </View>
+              <View style={styles.recentItemQuantity}>
+                <Text style={styles.recentItemQuantityText}>
+                  {item.quantity}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        });
+    })()}
     
     <TouchableOpacity
       style={styles.viewAllButton}
