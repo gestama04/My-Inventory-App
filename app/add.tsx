@@ -39,7 +39,7 @@ interface ItemHistory {
   action: 'add' | 'edit' | 'remove';
 }
 
-const genAI = new GoogleGenerativeAI("AIzaSyDuUDSAfqwznlx9XMw-Xea4f0bU-sfe_4k");
+const genAI = new GoogleGenerativeAI("*colocar a sua api key*");
 
 // Função para classificação de produtos
 export async function classifyProduct(imageBase64: string): Promise<string> {
