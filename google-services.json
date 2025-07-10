@@ -1,41 +1,41 @@
 {
   "project_info": {
-    "project_number": "385257066704",
-    "firebase_url": "https://my-inventory2025-default-rtdb.europe-west1.firebasedatabase.app",
-    "project_id": "my-inventory2025",
-    "storage_bucket": "my-inventory2025.firebasestorage.app"
+    "project_number": "*os seus dados*",
+    "firebase_url": "*os seus dados*",
+    "project_id": "*os seus dados*",
+    "storage_bucket": "*os seus dados*"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:385257066704:android:a438d372461781dd178ed5",
+        "mobilesdk_app_id": "*os seus dados*",
         "android_client_info": {
-          "package_name": "com.gestama.InventoryApp"
+          "package_name": "*os seus dados*"
         }
       },
       "oauth_client": [
         {
-          "client_id": "385257066704-ut15fnorcvtaa3lutre0h6eeq6hb7769.apps.googleusercontent.com",
+          "client_id": "*os seus dados*",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyDUJQYh5iZ8ySYeeokbW2XLOTyIUrKoVaI"
+          "current_key": "*your api key"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "385257066704-ut15fnorcvtaa3lutre0h6eeq6hb7769.apps.googleusercontent.com",
+              "client_id": "*os seus dados*",
               "client_type": 3
             },
             {
-              "client_id": "385257066704-h02kjhlnctjsahepk4s41idc2it2m7qb.apps.googleusercontent.com",
+              "client_id": "*os seus dados*",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.gestama.InventoryApp"
+                "bundle_id": "*os seus dados*"
               }
             }
           ]
