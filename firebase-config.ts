@@ -10,13 +10,13 @@ import { getStorage } from 'firebase/storage';
 
 // Configuração do Firebase
 const firebaseConfig = {
-  apiKey: "AIzaSyBFgCmXIgUOxx5yRNMizDYLnI95h4THJPE",
-  authDomain: "my-inventory2025.firebaseapp.com",
-  databaseURL: "https://my-inventory2025-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "my-inventory2025",
-  storageBucket: "my-inventory2025.firebasestorage.app",
-  messagingSenderId: "385257066704",
-  appId: "1:385257066704:web:ca48b0d231ba50e1178ed5"
+  apiKey: "*os seus dados*",
+  authDomain: "*os seus dados*",
+  databaseURL: "*os seus dados*",
+  projectId: "*os seus dados*",
+  storageBucket: "*os seus dados*",
+  messagingSenderId: "*os seus dados*",
+  appId: "*os seus dados*"
 };
 
 // --- Inicialização ---
