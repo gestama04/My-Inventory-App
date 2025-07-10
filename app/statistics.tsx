@@ -38,7 +38,7 @@ interface AIInsight {
   type: 'info' | 'warning' | 'suggestion';
 }
 
-const genAI = new GoogleGenerativeAI("AIzaSyDuUDSAfqwznlx9XMw-Xea4f0bU-sfe_4k");
+const genAI = new GoogleGenerativeAI("*colocar a sua api key*");
 
 export default function StatisticsScreen() {
   const [totalItems, setTotalItems] = useState(0);
