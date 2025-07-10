@@ -3,7 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MaterialCommunityIcons } from "@expo/vector-icons"; // Para tipagem e referência
 
 // ATENÇÃO: Mova a sua API Key para um local mais seguro (ex: variáveis de ambiente)
-const API_KEY = "AIzaSyDuUDSAfqwznlx9XMw-Xea4f0bU-sfe_4k"; // Sua API Key
+const API_KEY = "*colocar a sua api key*";
 const genAI = new GoogleGenerativeAI(API_KEY);
 
 interface IconCache {
