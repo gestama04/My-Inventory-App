@@ -172,7 +172,7 @@ export default function AboutScreen() {
             styles.cardText,
             currentTheme === 'dark' ? styles.darkSecondaryText : styles.lightSecondaryText
           ]}>
-            My Inventory é uma aplicação de gestão de inventário pessoal que permite organizar e acompanhar os seus produtos de forma simples e eficaz. Com recursos de inteligência artificial para identificação automática de produtos, categorização inteligente e estatísticas detalhadas, a app ajuda-o a manter o seu inventário sempre organizado.
+            O My Inventory é uma aplicação de gestão de inventário que permite organizar e acompanhar os seus produtos de forma simples e eficaz. Com recursos de inteligência artificial para identificação automática de produtos, categorização inteligente e estatísticas detalhadas, a app ajuda-o a manter o seu inventário sempre organizado.
           </Text>
         </View>
         
@@ -269,7 +269,7 @@ export default function AboutScreen() {
             styles.footerText,
             currentTheme === 'dark' ? styles.darkSecondaryText : styles.lightSecondaryText
           ]}>
-            © 2025 My Inventory. Todos os direitos reservados.
+            2025 © My Inventory - Todos os direitos reservados
           </Text>
         </View>
       </ScrollView>

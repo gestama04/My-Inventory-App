@@ -937,38 +937,41 @@ const outOfStockItems = combinedItems.filter(item => {
         console.log(`[STATS_DEBUG] Itens com stock baixo (cálculo): ${lowStockItems.length}, Sem stock (cálculo): ${outOfStockItems.length}`);
     
     
-        console.log("[STATS_DEBUG] Obtendo itens adicionados recentemente do histórico...");
-        let recentlyAddedFromHistory: InventoryItem[] = [];
-        try {
-          const historyData = await getItemHistory(5); // Assumindo que getItemHistory existe
-          const recentAdditionsFromHistory = historyData?.filter((item: any) => item.action === 'add') || [];
-          
-          // Mapear itens do histórico para a estrutura de InventoryItem, mas sem base64 desnecessária
-          recentlyAddedFromHistory = (recentAdditionsFromHistory || []).map((historyItem: any) => {
-  const inventoryItemDetails = itemsForStatCalculation.find(
-    itemL => itemL.name === historyItem.name && itemL.category === historyItem.category
-  );
-  return {
-    // GARANTA QUE TODOS OS CAMPOS USADOS PELA UI ESTÃO AQUI:
-    id: inventoryItemDetails?.id || historyItem.id || `history_${Date.now()}_${Math.random()}`, // Muito importante para a navegação
-    name: historyItem.name || inventoryItemDetails?.name || 'Item sem nome',
-    quantity: historyItem.quantity || inventoryItemDetails?.quantity || '0',
-    category: historyItem.category || inventoryItemDetails?.category || 'Sem categoria',
-    price: inventoryItemDetails?.price || historyItem.price, // Se usado
-    lowStockThreshold: inventoryItemDetails?.lowStockThreshold || historyItem.lowStockThreshold, // Se usado
-    description: inventoryItemDetails?.description || historyItem.description, // Se usado
-    createdAt: inventoryItemDetails?.createdAt || historyItem.timestamp, // Se usado
-    updatedAt: inventoryItemDetails?.updatedAt || historyItem.timestamp, // Se usado
-    photoUrl: inventoryItemDetails?.photoUrl || undefined,
-    photo: inventoryItemDetails?.photoUrl ? undefined : (inventoryItemDetails?.photo || undefined), // Sua lógica correta para base64
-    userId: userId, // Certifique-se que userId está definido e correto
-  } as InventoryItem;
-});
-          console.log(`[STATS_DEBUG] ${recentlyAddedFromHistory.length} itens adicionados recentemente encontrados (do histórico).`);
-        } catch (historyError: any) {
-          console.warn("[STATS_DEBUG] Erro ao obter histórico para itens recentes:", historyError.message, historyError.code, historyError);
-          recentlyAddedFromHistory = [];
-        }
+        console.log("[STATS_DEBUG] Obtendo itens adicionados recentemente do inventário...");
+let recentlyAddedFromHistory: InventoryItem[] = [];
+
+try {
+  // Em vez de buscar do histórico, pegar os 5 itens mais recentes do inventário
+  const recentlyAdded = itemsForStatCalculation
+    .sort((a, b) => {
+      // Ordenar por createdAt se existir, senão por updatedAt
+      const aTime = a.createdAt?.toDate?.() || a.updatedAt?.toDate?.() || new Date(0);
+      const bTime = b.createdAt?.toDate?.() || b.updatedAt?.toDate?.() || new Date(0);
+      return bTime.getTime() - aTime.getTime();
+    })
+    .slice(0, 5);
+
+  recentlyAddedFromHistory = recentlyAdded.map(item => ({
+    id: item.id || `recent_${Date.now()}_${Math.random()}`,
+    name: item.name || 'Item sem nome',
+    quantity: item.quantity || '0',
+    category: item.category || 'Sem categoria',
+    price: item.price,
+    lowStockThreshold: item.lowStockThreshold,
+    description: item.description,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    photoUrl: item.photoUrl,
+    photo: item.photo,
+    userId: userId,
+  } as InventoryItem));
+
+  console.log(`[STATS_DEBUG] ${recentlyAddedFromHistory.length} itens mais recentes do inventário encontrados.`);
+} catch (error: any) {
+  console.warn("[STATS_DEBUG] Erro ao obter itens recentes do inventário:", error.message);
+  recentlyAddedFromHistory = [];
+}
+
     
         // ALTERAÇÃO: Preparar listas para o objeto stats SEM base64
         const mapToLightItem = (item: InventoryItem): Omit<InventoryItem, 'photo'> & { photoUrl?: string } => {

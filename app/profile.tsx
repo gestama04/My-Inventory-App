@@ -28,7 +28,7 @@ import { uploadImage } from '../firebase-service';
 export default function ProfileScreen() {
   const router = useRouter();
   const { currentTheme } = useTheme();
-  const { currentUser, logout } = useAuth();
+  const { currentUser, logout, reloadUser } = useAuth();
   const { showAlert, AlertComponent } = useCustomAlert();
   
   const [displayName, setDisplayName] = useState('');
@@ -237,7 +237,20 @@ export default function ProfileScreen() {
       
       // Se há dados para atualizar
       if (Object.keys(updateData).length > 0) {
-        await updateProfile(currentUser, updateData);
+        console.log('🔄 Atualizando perfil com dados:', updateData);
+        
+        // 🆕 USAR auth.currentUser DIRETAMENTE
+        if (!auth.currentUser) {
+          throw new Error('Usuário não autenticado');
+        }
+        
+        await updateProfile(auth.currentUser, updateData);
+        console.log('✅ updateProfile concluído');
+        
+        // 🆕 RECARREGAR O USUÁRIO NO CONTEXTO
+        await reloadUser();
+        console.log('✅ Contexto do usuário atualizado');
+        
         showAlert(
           'Sucesso',
           'Perfil atualizado com sucesso!',
@@ -253,7 +266,18 @@ export default function ProfileScreen() {
       setIsEditing(false);
     } catch (error) {
       console.error('Erro ao atualizar perfil:', error);
-      showAlert('Erro', 'Não foi possível atualizar o perfil. Tente novamente.', [
+      
+      let errorMessage = 'Não foi possível atualizar o perfil. Tente novamente.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('upload')) {
+          errorMessage = 'Erro ao fazer upload da imagem. Verifique sua conexão e tente novamente.';
+        } else if (error.message.includes('não autenticado')) {
+          errorMessage = 'Sessão expirada. Por favor, faça login novamente.';
+        }
+      }
+      
+      showAlert('Erro', errorMessage, [
         { text: 'OK', onPress: () => {} }
       ]);
       
@@ -526,7 +550,7 @@ export default function ProfileScreen() {
                       styles.versionText,
                       currentTheme === 'dark' ? styles.darkSecondaryText : styles.lightSecondaryText
                     ]}>
-                      Versão 1.0.0
+                      2025 © My Inventory - Todos os direitos reservados
                     </Text>
                   </View>
                 </ScrollView>

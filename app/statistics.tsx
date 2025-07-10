@@ -6,6 +6,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { VictoryPie } from 'victory-native';
 import { useAuth } from '../auth-context';
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 // Firebase imports
 import { 
   collection, 
@@ -31,6 +32,14 @@ interface CategoryStat {
   percentage: number;
 }
 
+interface AIInsight {
+  title: string;
+  description: string;
+  type: 'info' | 'warning' | 'suggestion';
+}
+
+const genAI = new GoogleGenerativeAI("AIzaSyDuUDSAfqwznlx9XMw-Xea4f0bU-sfe_4k");
+
 export default function StatisticsScreen() {
   const [totalItems, setTotalItems] = useState(0);
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
@@ -42,7 +51,136 @@ export default function StatisticsScreen() {
   const router = useRouter();
   const { currentUser } = useAuth();
   const [categoryColorMap, setCategoryColorMap] = useState<Record<string, string>>({});
+  const [aiInsights, setAiInsights] = useState<AIInsight[]>([]);
+  const [loadingInsights, setLoadingInsights] = useState(false);
+
+const generateAIInsights = async () => {
+  if (categoryStats.length === 0 || totalItems === 0) return;
   
+  setLoadingInsights(true);
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    
+    const inventoryData = {
+      totalItems,
+      categories: categoryStats,
+      topItems: topItems.slice(0, 3),
+      leastUsedItems: leastUsedItems.slice(0, 3)
+    };
+    
+    const prompt = `
+      Analise estes dados de inventário e forneça exatamente 4 insights úteis em português de Portugal, tenta usar a palavra produto invés de item:
+      
+      Dados: ${JSON.stringify(inventoryData)}
+      
+      Para cada insight, forneça:
+      1. Um título curto (máximo 6 palavras)
+      2. Uma descrição útil (máximo 2 frases)
+      3. Tipo: "info", "warning" ou "suggestion"
+      
+      Foque em:
+      - Padrões interessantes nas categorias
+      - Produtos com stock muito alto ou baixo
+      - Sugestões de organização
+      - Observações sobre diversidade do inventário
+      
+      Formato da resposta:
+      INSIGHT 1:
+      Título: [título]
+      Descrição: [descrição]
+      Tipo: [tipo]
+      
+      INSIGHT 2:
+      Título: [título]
+      Descrição: [descrição]
+      Tipo: [tipo]
+      
+      (continue para 4 insights)
+    `;
+    
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+    
+    // Processar a resposta da IA
+    const insights = parseAIInsights(responseText);
+    setAiInsights(insights);
+    
+  } catch (error) {
+    console.error('Erro ao gerar insights:', error);
+    // Fallback com insights básicos
+    setAiInsights(generateFallbackInsights());
+  } finally {
+    setLoadingInsights(false);
+  }
+};
+
+// Função para processar a resposta da IA
+const parseAIInsights = (responseText: string): AIInsight[] => {
+  const insights: AIInsight[] = [];
+  const insightBlocks = responseText.split(/INSIGHT \d+:/);
+  
+  insightBlocks.slice(1).forEach(block => {
+    const titleMatch = block.match(/Título:\s*(.+)/);
+    const descriptionMatch = block.match(/Descrição:\s*(.+?)(?=\nTipo:|$)/s);
+    const typeMatch = block.match(/Tipo:\s*(info|warning|suggestion)/);
+    
+    if (titleMatch && descriptionMatch && typeMatch) {
+      insights.push({
+        title: titleMatch[1].trim(),
+        description: descriptionMatch[1].trim().replace(/\n/g, ' '),
+        type: typeMatch[1] as 'info' | 'warning' | 'suggestion'
+      });
+    }
+  });
+  
+  return insights.slice(0, 4); // Máximo 4 insights
+};
+
+// Insights de fallback caso a IA falhe
+const generateFallbackInsights = (): AIInsight[] => {
+  const insights: AIInsight[] = [];
+  
+  if (categoryStats.length > 0) {
+    const topCategory = categoryStats[0];
+    insights.push({
+      title: "Categoria Dominante",
+      description: `${topCategory.category} representa ${topCategory.percentage.toFixed(1)}% do seu inventário.`,
+      type: 'info'
+    });
+  }
+  
+  if (leastUsedItems.length > 0 && leastUsedItems[0].quantity === 0) {
+    insights.push({
+      title: "Produtos Esgotados",
+      description: "Tem produtos sem stock. Considere reabastecer ou remover os que não são utilizados.",
+      type: 'warning'
+    });
+  }
+  
+  if (categoryStats.length >= 5) {
+    insights.push({
+      title: "Inventário Diversificado",
+      description: "Tem uma boa diversidade de categorias no seu inventário.",
+      type: 'info'
+    });
+  }
+  
+  insights.push({
+    title: "Organização Sugerida",
+    description: "Considere agrupar produtos similares para facilitar a gestão.",
+    type: 'suggestion'
+  });
+  
+  return insights;
+};
+
+// Chamar a função quando os dados carregarem
+useEffect(() => {
+  if (categoryStats.length > 0 && !loading) {
+    generateAIInsights();
+  }
+}, [categoryStats, loading]);
+
 const getCategoryColorMap = (categories: string[]) => {
   const colorMap: Record<string, string> = {};
   categories.forEach((category, index) => {
@@ -105,53 +243,63 @@ const loadStats = async () => {
     
     // Converter o mapa de volta para um array
     const inventory = Object.values(combinedInventoryMap);
-    
-    // Calcular total de itens corretamente
+
     const totalQuantity = inventory.reduce((sum: number, item: InventoryItem) =>
       sum + (parseInt(item.quantity.toString()) || 0), 0
     );
     setTotalItems(totalQuantity);
-    
-    // Calcular estatísticas de categoria com contagens corretas
+
     const categoryCount = inventory.reduce((acc: Record<string, number>, item: InventoryItem) => {
       const itemQuantity = parseInt(item.quantity.toString()) || 0;
       const category = item.category || 'Sem Categoria';
-      
+
       if (!acc[category]) {
         acc[category] = 0;
       }
       acc[category] += itemQuantity;
       return acc;
     }, {});
-    
-    // Converter para formato de array para VictoryPie
-    const stats = Object.entries(categoryCount)
+
+    const currentStats = Object.entries(categoryCount)
       .map(([category, count]) => ({
         category,
         count: count as number,
         percentage: totalQuantity > 0 ? ((count as number) / totalQuantity) * 100 : 0
       }))
-      .sort((a, b) => b.count - a.count);
-    
-    setCategoryStats(stats);
-    
-    const uniqueCategories = [...new Set(inventory.map(item => item.category || 'Sem Categoria'))];
-    const categoryColorMap = getCategoryColorMap(uniqueCategories);
-    setCategoryColorMap(categoryColorMap);
-    
-    await loadCategoryIcons(uniqueCategories);
-    
-    // Ordenar itens por quantidade
+      .sort((a, b) => b.count - a.count); // Ordena por contagem descendente
+
+    setCategoryStats(currentStats);
+
+    // Lógica para cores consistentes e corretas
+    setCategoryColorMap(prevMap => {
+      const newMap = { ...prevMap };
+      // Começa a contar as cores já atribuídas para saber qual o próximo índice de cor a usar
+      let assignedColorsCount = Object.keys(newMap).length;
+
+      currentStats.forEach(stat => {
+        // Se a categoria ainda não tem uma cor atribuída no nosso mapa persistente
+        if (!newMap[stat.category]) { 
+          newMap[stat.category] = getUniqueColor(assignedColorsCount); // Usa a tua função getUniqueColor
+          assignedColorsCount++; // Incrementa para a próxima nova categoria
+        }
+      });
+      return newMap;
+    });
+
+    // A lista de ícones deve usar as categorias de currentStats
+    await loadCategoryIcons(currentStats.map(s => s.category));
+
     const sortedItems = [...inventory].sort((a, b) =>
       (parseInt(b.quantity.toString()) || 0) - (parseInt(a.quantity.toString()) || 0)
     );
-    
+
     const sortedItemsLeast = [...inventory].sort((a, b) =>
       (parseInt(a.quantity.toString()) || 0) - (parseInt(b.quantity.toString()) || 0)
     );
-    
+
     setTopItems(sortedItems.slice(0, 5));
     setLeastUsedItems(sortedItemsLeast.slice(0, 5));
+
   } catch (error) {
     console.error('Erro ao carregar estatísticas:', error);
   } finally {
@@ -344,7 +492,7 @@ const loadCategoryIcons = async (categories: string[]) => {
       <View style={[styles.loadingContainer, currentTheme === 'dark' ? styles.dark : styles.light]}>
         <ActivityIndicator size="large" color={currentTheme === 'dark' ? '#fff' : '#333'} />
         <Text style={[styles.loadingText, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-          Carregando estatísticas...
+          A carregar estatísticas...
         </Text>
       </View>
     );
@@ -384,9 +532,7 @@ const loadCategoryIcons = async (categories: string[]) => {
             height={300}
             padding={60}
             radius={120}
-            sortKey="count"
-            sortOrder="descending"
-            colorScale={categoryStats.map(stat => categoryColorMap[stat.category])}
+            colorScale={categoryStats.map(stat => categoryColorMap[stat.category] || getUniqueColor(0))} 
             style={{
               labels: {
                 fill: 'white',
@@ -416,6 +562,74 @@ const loadCategoryIcons = async (categories: string[]) => {
           </Text>
         </View>
       )}
+
+<View style={[styles.insightsContainer, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
+        <View style={styles.subtitleContainer}>
+          <MaterialCommunityIcons
+            name="brain"
+            size={24}
+            color={currentTheme === 'dark' ? '#fff' : '#333'}
+          />
+          <Text style={[styles.subtitle, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+            Insights da IA
+          </Text>
+          <TouchableOpacity
+            style={styles.refreshInsightsButton}
+            onPress={generateAIInsights}
+            disabled={loadingInsights}
+          >
+            {loadingInsights ? (
+              <ActivityIndicator size="small" color="#3498db" />
+            ) : (
+              <MaterialIcons name="refresh" size={20} color="#3498db" />
+            )}
+          </TouchableOpacity>
+        </View>
+        
+        {aiInsights.length > 0 ? (
+          aiInsights.map((insight, index) => (
+            <View key={index} style={[
+              styles.insightCard,
+              currentTheme === 'dark' ? styles.darkInsightCard : styles.lightInsightCard
+            ]}>
+              <View style={styles.insightHeader}>
+                <MaterialCommunityIcons
+                  name={
+                    insight.type === 'warning' ? 'alert-circle' :
+                    insight.type === 'suggestion' ? 'lightbulb' : 'information'
+                  }
+                  size={20}
+                  color={
+                    insight.type === 'warning' ? '#f39c12' :
+                    insight.type === 'suggestion' ? '#3498db' : '#27ae60'
+                  }
+                />
+                <Text style={[
+                  styles.insightTitle,
+                  currentTheme === 'dark' ? styles.darkText : styles.lightText
+                ]}>
+                  {insight.title}
+                </Text>
+              </View>
+              <Text style={[
+                styles.insightDescription,
+                currentTheme === 'dark' ? styles.darkSecondaryText : styles.lightSecondaryText
+              ]}>
+                {insight.description}
+              </Text>
+            </View>
+          ))
+        ) : (
+          !loadingInsights && (
+            <Text style={[
+              styles.noInsightsText,
+              currentTheme === 'dark' ? styles.darkSecondaryText : styles.lightSecondaryText
+            ]}>
+              Adicione mais produtos para obter insights personalizados.
+            </Text>
+          )
+        )}
+      </View>
 
 {topItems.length > 0 && (
   <View style={[styles.topCategories, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
@@ -666,6 +880,55 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
   },
+  insightsContainer: {
+  borderRadius: 10,
+  padding: 15,
+  marginBottom: 20,
+  elevation: 3,
+},
+refreshInsightsButton: {
+  marginLeft: 'auto',
+  padding: 4,
+},
+insightCard: {
+  padding: 12,
+  borderRadius: 8,
+  marginBottom: 10,
+  borderLeftWidth: 3,
+  borderLeftColor: '#3498db',
+},
+darkInsightCard: {
+  backgroundColor: '#2a2a2a',
+},
+lightInsightCard: {
+  backgroundColor: '#f8f9fa',
+},
+insightHeader: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  marginBottom: 6,
+},
+insightTitle: {
+  fontSize: 16,
+  fontWeight: '600',
+  marginLeft: 8,
+},
+insightDescription: {
+  fontSize: 14,
+  lineHeight: 20,
+  marginLeft: 28,
+},
+noInsightsText: {
+  textAlign: 'center',
+  fontStyle: 'italic',
+  padding: 20,
+},
+darkSecondaryText: {
+  color: '#bbb',
+},
+lightSecondaryText: {
+  color: '#666',
+},
   emptyCard: {
     padding: 20,
     borderRadius: 10,

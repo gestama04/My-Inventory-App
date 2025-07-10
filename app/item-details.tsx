@@ -24,7 +24,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { CategoryIconService } from '../services/category-icon-service'; // << IMPORTAR O SERVIÇO
-
+import QRCode from 'react-native-qrcode-svg';
 // Firebase imports
 import { db, auth, storage } from '../firebase-config';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -50,7 +50,7 @@ const genAI = new GoogleGenerativeAI("AIzaSyDuUDSAfqwznlx9XMw-Xea4f0bU-sfe_4k");
 // Função para gerar descrição apenas com texto (fallback)
 const generateDescription = async (name: string, category: string): Promise<string> => {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     
     const prompt = `
       Crie uma descrição detalhada para um item de inventário com as seguintes características:
@@ -82,7 +82,7 @@ const generateDescriptionFromImage = async (
   category: string): Promise<string> => {
   try {
     // Usar o modelo multimodal que suporta imagens
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     
     // Preparar a imagem para o prompt
     let base64Data = imageBase64;
@@ -525,6 +525,90 @@ const PhotoEditor = memo(({
   );
 });
 
+const QRCodeModal = memo(({
+  visible,
+  onClose,
+  item,
+  theme
+}: {
+  visible: boolean,
+  onClose: () => void,
+  item: Item,
+  theme: string
+}) => {
+  // 🔧 Gerar dados SEM a imagem base64 (muito grande para QR Code)
+  const generateQRCode = () => {
+    const qrData = {
+      app: 'MyInventoryApp',
+      id: item.id, // 🆕 Incluir ID para buscar a imagem depois
+      name: item.name,
+      category: item.category || '',
+      quantity: item.quantity?.toString() || '1',
+      // 🚫 NÃO incluir photo (base64 muito grande)
+      // 🆕 Incluir apenas um indicador se tem foto
+      hasPhoto: !!(item.photo || item.photoUrl)
+    };
+    
+    return JSON.stringify(qrData);
+  };
+
+  return (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalContainer}>
+        <View style={[
+          styles.qrModalContent,
+          theme === 'dark' ? { backgroundColor: '#222' } : { backgroundColor: '#fff' }
+        ]}>
+          <Text style={[
+            styles.modalTitle,
+            theme === 'dark' ? { color: '#fff' } : { color: '#000' }
+          ]}>
+            Código QR do Produto
+          </Text>
+          
+          <Text style={[
+            styles.qrItemName,
+            theme === 'dark' ? { color: '#fff' } : { color: '#000' }
+          ]}>
+            {item.name}
+          </Text>
+          
+          <View style={styles.qrContainer}>
+            <QRCode
+              value={generateQRCode()}
+              size={200}
+              color={theme === 'dark' ? '#000' : '#000'}
+              backgroundColor={theme === 'dark' ? '#fff' : '#fff'}
+              logo={require('../assets/images/icon.png')}
+              logoSize={30}
+              logoBackgroundColor='transparent'
+            />
+          </View>
+          
+          <Text style={[
+            styles.qrDescription,
+            theme === 'dark' ? { color: '#aaa' } : { color: '#666' }
+          ]}>
+            Digitalize este código para aceder rapidamente aos detalhes do produto
+          </Text>
+          
+          <TouchableOpacity
+            style={[styles.button, styles.closeQrButton]}
+            onPress={onClose}
+          >
+            <Text style={styles.buttonText}>Fechar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+});
+
 const { width } = Dimensions.get('window');
 
 export default function ItemDetailsScreen() {
@@ -536,6 +620,7 @@ export default function ItemDetailsScreen() {
   const [isEditing, setIsEditing] = useState(false);
   const [isEditingPhoto, setIsEditingPhoto] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showQRCode, setShowQRCode] = useState(false); 
   const { showAlert, AlertComponent } = useCustomAlert();
   const [categoryIconName, setCategoryIconName] = useState<string>(CategoryIconService.DEFAULT_ICON); // Estado para o nome do ícone
   
@@ -911,14 +996,29 @@ useEffect(() => {
             currentTheme === 'dark' ? styles.darkCard : styles.lightCard
           ]}>
             {/* Nome do item */}
-            <View style={styles.itemNameContainer}>
-    <Text style={[
-      styles.itemName,
-      currentTheme === 'dark' ? styles.darkText : styles.lightText
-    ]}>
-      {item.name}
-    </Text>
-  </View>
+<View style={styles.itemNameContainer}>
+  <Text style={[
+    styles.itemName,
+    currentTheme === 'dark' ? styles.darkText : styles.lightText
+  ]}>
+    {item.name}
+  </Text>
+  
+  {/* Botão do QR Code */}
+  <TouchableOpacity
+    style={[
+      styles.qrButton,
+      currentTheme === 'dark' ? styles.darkQrButton : styles.lightQrButton
+    ]}
+    onPress={() => setShowQRCode(true)}
+  >
+    <Ionicons
+      name="qr-code-outline"
+      size={20}
+      color={currentTheme === 'dark' ? '#fff' : '#007AFF'}
+    />
+  </TouchableOpacity>
+</View>
             
             {/* Badge de categoria */}
             {item.category && (
@@ -1066,7 +1166,14 @@ useEffect(() => {
     hasExistingPhoto={!!(item.photoUrl || item.photo)}
   />
 )}
-
+{showQRCode && (
+  <QRCodeModal
+    visible={showQRCode}
+    onClose={() => setShowQRCode(false)}
+    item={item}
+    theme={currentTheme}
+  />
+)}
         
         <AlertComponent />
       </>
@@ -1177,6 +1284,62 @@ useEffect(() => {
     removePhotoButton: {
       backgroundColor: 'rgba(231, 76, 60, 0.8)',
     },
+    qrButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  darkQrButton: {
+    backgroundColor: 'rgba(0, 122, 255, 0.2)',
+  },
+  lightQrButton: {
+    backgroundColor: 'rgba(0, 122, 255, 0.1)',
+  },
+  qrModalContent: {
+    width: '85%',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  qrContainer: {
+    padding: 20,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginVertical: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  qrItemName: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  qrDescription: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  closeQrButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 30,
+  },
     detailsCard: {
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
@@ -1196,6 +1359,16 @@ useEffect(() => {
       fontWeight: 'bold',
       marginBottom: 16,
     },
+    qrInfoContainer: {
+    marginVertical: 16,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  qrInfoText: {
+    fontSize: 14,
+    marginVertical: 2,
+    textAlign: 'center',
+  },
     categoryBadge: {
       flexDirection: 'row',
       alignItems: 'center',

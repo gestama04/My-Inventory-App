@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Switch, Alert } from 'react-native';
 import { useTheme } from './theme-context';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { NotificationService } from '../services/notification-service';
 import { useAuth } from '../auth-context';
+import CustomAlert from '../components/CustomAlert';
 
 // Firebase imports
 import { 
@@ -43,6 +44,13 @@ interface NotificationItem {
   itemIds?: string[]; // IDs dos itens relacionados à notificação
 }
 
+interface NotificationSettings {
+  enabled: boolean;
+  interval: number;
+  lowStockEnabled: boolean;
+  outOfStockEnabled: boolean;
+}
+
 export default function NotificationsScreen() {
   const { currentTheme } = useTheme();
   const router = useRouter();
@@ -51,22 +59,32 @@ export default function NotificationsScreen() {
   const [lowStockItems, setLowStockItems] = useState<InventoryItem[]>([]);
   const [outOfStockItems, setOutOfStockItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertTitle, setAlertTitle] = useState('');
+  const [alertMessage, setAlertMessage] = useState('');
+  const [lastNotificationTime, setLastNotificationTime] = useState<number>(0);
+ const [alertButtons, setAlertButtons] = useState<Array<{
+  text: string, 
+  onPress: () => void, 
+  style?: "default" | "cancel" | "destructive"
+}>>([]);
+  const [intervalPickerVisible, setIntervalPickerVisible] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
+  enabled: true,
+  interval: 60,
+  lowStockEnabled: true,
+  outOfStockEnabled: true
+});
 
 useEffect(() => {
   NotificationService.registerForPushNotificationsAsync();
   
   let unsubscribeNotifications: (() => void) | undefined;
-  let unsubscribeInventory: (() => void) | undefined; // Para o listener de checkInventoryItems
+  
 
   if (currentUser) {
     unsubscribeNotifications = loadNotifications();
     
-    const initInventoryCheck = async () => {
-      unsubscribeInventory = await checkInventoryItems();
-    };
-    initInventoryCheck();
-    
-    NotificationService.setupPeriodicStockCheck();
   } else {
     setLoading(false);
   }
@@ -74,9 +92,6 @@ useEffect(() => {
   return () => {
     if (unsubscribeNotifications) {
       unsubscribeNotifications();
-    }
-    if (unsubscribeInventory) { // Limpar o listener do inventário
-      unsubscribeInventory();
     }
     // A limpeza do setupPeriodicStockCheck é feita pelo NotificationService
     // ou quando o Utilizador se desloga.
@@ -94,6 +109,13 @@ useEffect(() => {
       orderBy('timestamp', 'desc')
     );
     
+const loadNotificationSettings = async () => {
+  const settings = await NotificationService.getNotificationSettings();
+  setNotificationSettings(settings);
+};
+
+loadNotificationSettings();
+
     // Usar onSnapshot para receber atualizações em tempo real
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const notificationsList: NotificationItem[] = [];
@@ -121,66 +143,7 @@ useEffect(() => {
     return unsubscribe;
   };
 
-const checkInventoryItems = async (): Promise<(() => void) | undefined> => {
-  try {
-    if (!currentUser) return;
-    
-    const userSettings = await getUserSettings();
-    // Garantir que globalThreshold é uma string e tem um valor padrão
-    const globalThresholdSetting = (userSettings && 'globalLowStockThreshold' in userSettings)
-      ? String(userSettings.globalLowStockThreshold ?? '5') // Usa '5' se globalLowStockThreshold for null ou undefined
-      : '5';
-    
-    const unsubscribe = getInventoryItems((inventory) => {
-      const lowStock = inventory.filter(item => {
-        // Verificação robusta para item.quantity
-        const quantityStr = (item.quantity !== null && item.quantity !== undefined) 
-                              ? String(item.quantity) // Usar String() para conversão segura
-                              : '0'; // Valor padrão se quantity for null ou undefined
-        const quantity = parseInt(quantityStr, 10);
 
-        if (isNaN(quantity)) return false; // Ignorar item se a quantidade não for um número válido
-
-        let thresholdToCompare = parseInt(globalThresholdSetting, 10);
-        // Se globalThresholdSetting não for um número válido (improvável com o fallback), usar um default seguro
-        if (isNaN(thresholdToCompare)) thresholdToCompare = 5; 
-
-        // Verificação robusta para item.lowStockThreshold
-        if (item.lowStockThreshold !== null && item.lowStockThreshold !== undefined) {
-          const customThresholdStr = String(item.lowStockThreshold);
-          const customThreshold = parseInt(customThresholdStr, 10);
-          if (!isNaN(customThreshold)) { // Usar apenas se for um número válido
-            thresholdToCompare = customThreshold;
-          }
-        }
-        return quantity <= thresholdToCompare && quantity > 0;
-      });
-      
-      const outOfStock = inventory.filter(item => {
-        const quantityStr = (item.quantity !== null && item.quantity !== undefined) 
-                              ? String(item.quantity) 
-                              : '0';
-        const quantity = parseInt(quantityStr, 10);
-        
-        // Considerar NaN como não estando "sem stock" (quantity === 0)
-        if (isNaN(quantity)) return false; 
-        return quantity === 0;
-      });
-      
-      setLowStockItems(lowStock);
-      setOutOfStockItems(outOfStock);
-      
-      generateNotifications(lowStock, outOfStock); // generateNotifications deve ser chamada após os estados serem atualizados
-                                                 // ou receber lowStock e outOfStock diretamente.
-                                                 // A chamada aqui está correta, pois usa as variáveis locais.
-    });
-    
-    return unsubscribe; // Retorna a função para limpar o listener de getInventoryItems
-  } catch (error) {
-    console.error('Erro ao verificar inventário:', error);
-    return undefined;
-  }
-};
 
 const formatNotificationTimestamp = (timestamp: any): string => {
   if (!timestamp) return "Data inválida";
@@ -198,100 +161,6 @@ const formatNotificationTimestamp = (timestamp: any): string => {
     return "Erro na data";
   }
 };
-
-const generateNotifications = async (lowStock: InventoryItem[], outOfStock: InventoryItem[]) => {
-  if (!currentUser) return;
-
-  try {
-    // Agrupar por nome de produto
-    const uniqueLowStockProducts = new Map();
-    const uniqueOutOfStockProducts = new Map();
-
-    // Agrupar produtos com stock baixo
-    lowStock.forEach(item => {
-      if (!uniqueLowStockProducts.has(item.name)) {
-        uniqueLowStockProducts.set(item.name, item);
-      }
-    });
-
-    // Agrupar produtos sem stock
-    outOfStock.forEach(item => {
-      if (!uniqueOutOfStockProducts.has(item.name)) {
-        uniqueOutOfStockProducts.set(item.name, item);
-      }
-    });
-
-    const notificationsRef = collection(db, 'notifications');
-
-    // Notificações de stock baixo
-    if (lowStock.length > 0) {
-      const lowStockIds = Array.from(uniqueLowStockProducts.values())
-        .map(item => item.id)
-        .filter(id => id !== undefined) as string[];
-
-      const existingLowStockQuery = query(
-        notificationsRef,
-        where('userId', '==', currentUser.uid),
-        where('title', '==', 'Alerta de Stock Baixo'),
-        where('read', '==', false)
-      );
-
-      const existingLowStockSnapshot = await getDocs(existingLowStockQuery);
-
-      if (existingLowStockSnapshot.empty) {
-        await addDoc(notificationsRef, {
-          userId: currentUser.uid,
-          title: 'Alerta de Stock Baixo',
-          message: `${uniqueLowStockProducts.size} ${uniqueLowStockProducts.size === 1 ? 'produto' : 'produtos'} com stock baixo`,
-          timestamp: serverTimestamp(),
-          read: false,
-          itemIds: lowStockIds
-        });
-
-        // Enviar notificação local
-        await NotificationService.sendLocalNotification(
-          'Alerta de Stock Baixo',
-          `${uniqueLowStockProducts.size} ${uniqueLowStockProducts.size === 1 ? 'produto' : 'produtos'} com stock baixo`,
-          'low-stock'
-        );
-      }
-    }
-
-    // Para itens sem stock, fazer a mesma alteração
-    if (outOfStock.length > 0) {
-      const outOfStockIds = outOfStock.map(item => item.id).filter(id => id !== undefined) as string[];
-
-      const existingOutOfStockQuery = query(
-        notificationsRef,
-        where('userId', '==', currentUser.uid),
-        where('title', '==', 'Alerta de Falta de Stock'),
-        where('read', '==', false)
-      );
-
-      const existingOutOfStockSnapshot = await getDocs(existingOutOfStockQuery);
-
-      if (existingOutOfStockSnapshot.empty) {
-        await addDoc(notificationsRef, {
-          userId: currentUser.uid,
-          title: 'Alerta de Falta de Stock',
-          message: `${uniqueOutOfStockProducts.size} ${uniqueOutOfStockProducts.size === 1 ? 'produto' : 'produtos'} sem stock`,
-          timestamp: serverTimestamp(),
-          read: false,
-          itemIds: outOfStockIds
-        });
-
-        NotificationService.sendLocalNotification(
-          'Alerta de Falta de Stock',
-          `${uniqueOutOfStockProducts.size} ${uniqueOutOfStockProducts.size === 1 ? 'produto' : 'produtos'} sem stock`,
-          'out-of-stock'
-        );
-      }
-    }
-  } catch (error) {
-    console.error('Erro ao gerar notificações:', error);
-  }
-};
-  
 
   const markAsRead = async (id: string) => {
     if (!currentUser || !id) return;
@@ -348,6 +217,60 @@ const generateNotifications = async (lowStock: InventoryItem[], outOfStock: Inve
     }
   };
 
+const saveNotificationSettings = async (newSettings: NotificationSettings) => {
+  try {
+    await NotificationService.saveNotificationSettings(newSettings);
+    setNotificationSettings(newSettings);
+  } catch (error) {
+    console.error('Erro ao salvar configurações:', error);
+    setAlertTitle('Erro');
+    setAlertMessage('Não foi possível salvar as configurações');
+    setAlertButtons([{ 
+      text: 'OK', 
+      onPress: () => setAlertVisible(false),
+      style: "default" as const
+    }]);
+    setAlertVisible(true);
+  }
+};
+
+const intervalOptions = [
+  { label: '15 minutos', value: 15 },
+  { label: '30 minutos', value: 30 },
+  { label: '1 hora', value: 60 },
+  { label: '2 horas', value: 120 },
+  { label: '4 horas', value: 240 },
+  { label: '8 horas', value: 480 },
+  { label: '12 horas', value: 720 },
+  { label: '24 horas', value: 1440 },
+];
+
+const showIntervalPicker = () => {
+  const options = intervalOptions.map(option => ({
+    text: option.label,
+    onPress: () => {
+      saveNotificationSettings({
+        ...notificationSettings,
+        interval: option.value
+      });
+      setAlertVisible(false);
+    },
+    style: "default" as const
+  }));
+
+  setAlertTitle('Intervalo de Notificações');
+  setAlertMessage('Escolha de quanto em quanto tempo quer receber notificações:');
+  setAlertButtons([
+  ...options,
+  { 
+    text: 'Cancelar', 
+    onPress: () => setAlertVisible(false), 
+    style: "destructive" as const 
+  }
+]);
+  setAlertVisible(true);
+};
+
   return (
     <View style={[styles.container, currentTheme === "dark" ? styles.dark : styles.light]}>
       <View style={styles.header}>
@@ -357,6 +280,70 @@ const generateNotifications = async (lowStock: InventoryItem[], outOfStock: Inve
           </TouchableOpacity>
         )}
       </View>
+
+<View style={[styles.settingsContainer, currentTheme === "dark" ? styles.darkSettingsContainer : styles.lightSettingsContainer]}>
+  <Text style={[styles.settingsTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+    Configurações de Notificação
+  </Text>
+  
+  <View style={[styles.settingRow, currentTheme === "dark" ? styles.darkSettingRow : styles.lightSettingRow]}>
+    <Text style={[styles.settingLabel, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+      Notificações Ativas
+    </Text>
+    <Switch
+      value={notificationSettings.enabled}
+      onValueChange={(value) => saveNotificationSettings({
+        ...notificationSettings,
+        enabled: value
+      })}
+      trackColor={{ false: "#767577", true: "#3498db" }}
+      thumbColor={notificationSettings.enabled ? "#2980b9" : "#f4f3f4"}
+    />
+  </View>
+
+  {notificationSettings.enabled && (
+    <>
+      <TouchableOpacity style={[styles.settingRow, currentTheme === "dark" ? styles.darkSettingRow : styles.lightSettingRow]} onPress={showIntervalPicker}>
+        <Text style={[styles.settingLabel, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+          Intervalo
+        </Text>
+        <Text style={[styles.settingValue, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+          {intervalOptions.find(opt => opt.value === notificationSettings.interval)?.label || 'Personalizado'}
+        </Text>
+      </TouchableOpacity>
+
+      <View style={[styles.settingRow, currentTheme === "dark" ? styles.darkSettingRow : styles.lightSettingRow]}>
+        <Text style={[styles.settingLabel, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+          Stock Baixo
+        </Text>
+        <Switch
+          value={notificationSettings.lowStockEnabled}
+          onValueChange={(value) => saveNotificationSettings({
+            ...notificationSettings,
+            lowStockEnabled: value
+          })}
+          trackColor={{ false: "#767577", true: "#f39c12" }}
+          thumbColor={notificationSettings.lowStockEnabled ? "#e67e22" : "#f4f3f4"}
+        />
+      </View>
+
+      <View style={[styles.settingRow, currentTheme === "dark" ? styles.darkSettingRow : styles.lightSettingRow]}>
+        <Text style={[styles.settingLabel, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+          Sem Stock
+        </Text>
+        <Switch
+          value={notificationSettings.outOfStockEnabled}
+          onValueChange={(value) => saveNotificationSettings({
+            ...notificationSettings,
+            outOfStockEnabled: value
+          })}
+          trackColor={{ false: "#767577", true: "#e74c3c" }}
+          thumbColor={notificationSettings.outOfStockEnabled ? "#c0392b" : "#f4f3f4"}
+        />
+      </View>
+    </>
+  )}
+</View>
 
       {notifications.length > 0 ? (
         <FlatList
@@ -411,6 +398,13 @@ const generateNotifications = async (lowStock: InventoryItem[], outOfStock: Inve
       >
         <Text style={styles.backButtonText}>Voltar</Text>
       </TouchableOpacity>
+    <CustomAlert
+        visible={alertVisible}
+        title={alertTitle}
+        message={alertMessage}
+        buttons={alertButtons}
+        onClose={() => setAlertVisible(false)}
+      />
     </View>
   );
 }
@@ -514,6 +508,45 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
+darkSettingsContainer: {
+  backgroundColor: '#333',
+},
+lightSettingsContainer: {
+  backgroundColor: '#fff',
+},
+settingsTitle: {
+  fontSize: 18,
+  fontWeight: 'bold',
+  marginBottom: 16,
+},
+settingRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingVertical: 12,
+},
+darkSettingRow: {
+  borderBottomWidth: 1,
+  borderBottomColor: '#555',
+},
+lightSettingRow: {
+  borderBottomWidth: 1,
+  borderBottomColor: '#eee',
+},
+settingsContainer: {
+  marginBottom: 20,
+  padding: 16,
+  borderRadius: 12,
+},
+settingLabel: {
+  fontSize: 16,
+  flex: 1,
+},
+settingValue: {
+  fontSize: 14,
+  color: '#666',
+  marginRight: 8,
+},
   dark: {
     backgroundColor: '#222',
   },

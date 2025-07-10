@@ -8,17 +8,23 @@ import {
   Dimensions,
   ActivityIndicator,
   RefreshControl,
-  Image
+  Image,
+  Modal,
+  Share,
+  Animated,
+  Easing
 } from "react-native";
 import { useRouter, Stack, useFocusEffect } from "expo-router";
 import { useTheme } from "./theme-context";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 // Importar serviços do Firebase
 import { getInventoryStats } from '../inventory-service';
 import { useAuth } from '../auth-context';
+import useCustomAlert from '../hooks/useCustomAlert';
 
 const { width } = Dimensions.get('window');
 
@@ -32,6 +38,32 @@ interface InventoryItem {
   lowStockThreshold?: string;
   photo?: string; // Adicionar esta propriedade
   photoUrl?: string;
+}
+
+const genAI = new GoogleGenerativeAI("AIzaSyDuUDSAfqwznlx9XMw-Xea4f0bU-sfe_4k");
+
+
+// Função para obter ícone baseado na categoria
+function getCategoryIcon(category?: string):
+  "package-variant" | "food-apple" | "cup" | "shower" | "tshirt-crew" |
+  "shoe-heel" | "tools" | "pencil" | "cellphone" | "television" | "book" {
+  
+  if (!category) return "package-variant";
+  
+  const categoryLower = category.toLowerCase();
+  
+  if (categoryLower.includes("alimento")) return "food-apple";
+  if (categoryLower.includes("bebida")) return "cup";
+  if (categoryLower.includes("higiene")) return "shower";
+  if (categoryLower.includes("roupa")) return "tshirt-crew";
+  if (categoryLower.includes("calçado")) return "shoe-heel";
+  if (categoryLower.includes("ferramenta")) return "tools";
+  if (categoryLower.includes("papelaria")) return "pencil";
+  if (categoryLower.includes("smartphone")) return "cellphone";
+  if (categoryLower.includes("eletrónico") || categoryLower.includes("eletrônico")) return "television";
+  if (categoryLower.includes("livro")) return "book";
+  
+  return "package-variant";
 }
 
 export default function HomeScreen() {
@@ -78,6 +110,33 @@ export default function HomeScreen() {
     // Retornar a dica correspondente ao dia
     return dailyTips[tipIndex];
   };
+
+const generateDailyInsight = async () => {
+  if (!currentUser || inventoryStats.totalItems === 0) return;
+  
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    
+    const prompt = `
+    Com base nos seguintes dados do inventário:
+    - Total de produtos: ${inventoryStats.totalItems}
+    - Categorias: ${inventoryStats.totalCategories}
+    - Produtos com stock baixo: ${inventoryStats.lowStockItems}
+    - Produtos sem stock: ${inventoryStats.outOfStockItems}
+    - Principais categorias: ${inventoryStats.categories.slice(0, 3).join(', ')}
+    
+    Gere uma análise breve e útil (máximo 100 palavras) em português de Portugal sobre o estado do inventário e dê uma sugestão prática para melhorar a gestão.
+    `;
+    
+    const result = await model.generateContent(prompt);
+    const insight = result.response.text();
+    setDailyInsight(insight);
+  } catch (error) {
+    console.error("Erro ao gerar insight:", error);
+    setDailyInsight("Mantenha o seu inventário organizado verificando regularmente os produtos com stock baixo e atualizando as quantidades.");
+  }
+};
+
   const [inventoryStats, setInventoryStats] = useState({
     totalItems: 0,
     totalCategories: 0,
@@ -92,7 +151,16 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [showLowStockItems, setShowLowStockItems] = useState(false);
   const [showOutOfStockItems, setShowOutOfStockItems] = useState(false);
+  const [dailyInsight, setDailyInsight] = useState<string>("");
+  const [showInsightModal, setShowInsightModal] = useState(false);
+  const { showAlert, AlertComponent } = useCustomAlert();
+  const [pulseAnim] = useState(new Animated.Value(1));
+  const [waveAnim1] = useState(new Animated.Value(0.3));
+  const [waveAnim2] = useState(new Animated.Value(0.6));
+  const [waveAnim3] = useState(new Animated.Value(0.4));
+  const [floatAnim] = useState(new Animated.Value(0));
 
+  
 const loadInventoryStats = async () => {
   try {
     if (!currentUser) {
@@ -170,6 +238,12 @@ const loadInventoryStats = async () => {
   }
 }, [currentUser]);
   
+useEffect(() => {
+  if (inventoryStats.totalItems >= 0) {
+    generateDailyInsight();
+  }
+}, [inventoryStats]);
+
   // Função para atualizar os dados
   const onRefresh = async () => {
     setRefreshing(true);
@@ -213,10 +287,107 @@ const loadInventoryStats = async () => {
   };
 
   // Função para feedback tátil ao pressionar botões
-  const handleButtonPress = (route: "/inventory" | "/add" | "/statistics" | "/settings") => {
+  const handleButtonPress = (route: "/inventory" | "/add" | "/statistics" | "/settings" | "/quick-edit") => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push(route as any);
   };
+
+useEffect(() => {
+  // Animação de respiração suave para o círculo principal
+  const breatheAnimation = Animated.loop(
+    Animated.sequence([
+      Animated.timing(pulseAnim, {
+        toValue: 1.2,
+        duration: 2000,
+        easing: Easing.bezier(0.4, 0.0, 0.6, 1.0),
+        useNativeDriver: true,
+      }),
+      Animated.timing(pulseAnim, {
+        toValue: 1,
+        duration: 2000,
+        easing: Easing.bezier(0.4, 0.0, 0.6, 1.0),
+        useNativeDriver: true,
+      }),
+    ])
+  );
+
+  // Ondas mais suaves e elegantes
+  const smoothWave1 = Animated.loop(
+    Animated.sequence([
+      Animated.timing(waveAnim1, {
+        toValue: 1,
+        duration: 1500,
+        easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+        useNativeDriver: false,
+      }),
+      Animated.timing(waveAnim1, {
+        toValue: 0.2,
+        duration: 1500,
+        easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+        useNativeDriver: false,
+      }),
+    ])
+  );
+
+  const smoothWave2 = Animated.loop(
+    Animated.sequence([
+      Animated.timing(waveAnim2, {
+        toValue: 1,
+        duration: 1800,
+        easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+        useNativeDriver: false,
+      }),
+      Animated.timing(waveAnim2, {
+        toValue: 0.3,
+        duration: 1800,
+        easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+        useNativeDriver: false,
+      }),
+    ])
+  );
+
+  const smoothWave3 = Animated.loop(
+    Animated.sequence([
+      Animated.timing(waveAnim3, {
+        toValue: 1,
+        duration: 2200,
+        easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+        useNativeDriver: false,
+      }),
+      Animated.timing(waveAnim3, {
+        toValue: 0.4,
+        duration: 2200,
+        easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+        useNativeDriver: false,
+      }),
+    ])
+  );
+
+  // Movimento orbital suave
+  const orbitAnimation = Animated.loop(
+    Animated.timing(floatAnim, {
+      toValue: 1,
+      duration: 4000,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    })
+  );
+
+  // Iniciar todas as animações
+  breatheAnimation.start();
+  smoothWave1.start();
+  smoothWave2.start();
+  smoothWave3.start();
+  orbitAnimation.start();
+
+  return () => {
+    breatheAnimation.stop();
+    smoothWave1.stop();
+    smoothWave2.stop();
+    smoothWave3.stop();
+    orbitAnimation.stop();
+  };
+}, []);
 
   // Função para renderizar imagem do item (suporta tanto photoUrl quanto photo base64)
 const renderItemImage = (item: InventoryItem) => {
@@ -235,6 +406,31 @@ const renderItemImage = (item: InventoryItem) => {
         />
       </View>
     );
+  }
+};
+
+const shareInventoryStats = async () => {
+  try {
+    const statsText = `📊 Estatísticas do Meu Inventário:
+    
+📦 Total de Produtos: ${inventoryStats.totalItems}
+📂 Categorias: ${inventoryStats.totalCategories}
+⚠️ Stock Baixo: ${inventoryStats.lowStockItems}
+❌ Sem Stock: ${inventoryStats.outOfStockItems}
+
+Principais categorias: ${inventoryStats.categories.slice(0, 3).join(', ')}
+
+Gerado pela app My Inventory 📱`;
+
+    await Share.share({
+      message: statsText,
+      title: 'Estatísticas do Inventário'
+    });
+  } catch (error) {
+    console.error('Erro ao partilhar:', error);
+    showAlert("Erro", "Não foi possível partilhar as estatísticas.", [
+      { text: "OK", onPress: () => {} }
+    ]);
   }
 };
 
@@ -268,7 +464,7 @@ const renderItemImage = (item: InventoryItem) => {
       <LinearGradient
         colors={currentTheme === "dark"
           ? ['#2c3e50', '#1a1a1a']
-          : ['#3498db', '#2980b9']}
+          : ['#0f4c75', '#3282b8']}
         style={styles.headerGradient}
       >
         <View style={styles.header}>
@@ -312,14 +508,60 @@ const renderItemImage = (item: InventoryItem) => {
       </LinearGradient>
 
       {/* Widgets de estatísticas */}
-      <View style={styles.statsContainer}>
-        <Text style={[styles.sectionTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-          Visão Geral
-        </Text>
+<View style={styles.statsContainer}>
+  <View style={styles.sectionHeader}>
+    <Text style={[styles.sectionTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+      Visão Geral
+    </Text>
+    {inventoryStats.totalItems > 0 && (
+      <TouchableOpacity
+        style={styles.shareButton}
+        onPress={shareInventoryStats}
+      >
+        <Ionicons name="share-outline" size={20} color="#3498db" />
+      </TouchableOpacity>
+    )}
+  </View>
         
         {loading ? (
           <ActivityIndicator size="large" color="#3498db" style={styles.loader} />
-        ) : (
+       ) : inventoryStats.totalItems === 0 ? (
+    // ADICIONAR AQUI: Mensagem de boas-vindas para utilizadores novos
+    <View style={[styles.welcomeContainer, currentTheme === "dark" ? styles.darkCard : styles.lightCard]}>
+      <MaterialIcons name="inventory" size={64} color="#3498db" style={styles.welcomeIcon} />
+      <Text style={[styles.welcomeTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+        Bem-vindo ao My Inventory!
+      </Text>
+      <Text style={[styles.welcomeText, currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+        Comece a organizar o seu inventário adicionando o seu primeiro produto. 
+        Use a câmera para identificação automática ou adicione manualmente.
+      </Text>
+      
+      <View style={styles.welcomeActions}>
+        <TouchableOpacity
+          style={styles.welcomePrimaryButton}
+          onPress={() => handleButtonPress("/add")}
+        >
+          <Ionicons name="add-circle" size={24} color="#fff" />
+          <Text style={styles.welcomePrimaryButtonText}>Adicionar Primeiro Produto</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={styles.welcomeSecondaryButton}
+          onPress={() => {
+            showAlert(
+              "Como começar",
+              "1. Toque em 'Adicionar Produto' para começar\n2. Use a câmera para identificação automática\n3. Organize por categorias\n4. Defina alertas de stock baixo\n5. Acompanhe as estatísticas",
+              [{ text: "Entendi", onPress: () => {} }]
+            );
+          }}
+        >
+          <MaterialIcons name="help-outline" size={20} color="#3498db" />
+          <Text style={styles.welcomeSecondaryButtonText}>Como começar</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  ) : (
           <View style={styles.statsGrid}>
             <TouchableOpacity
               style={[styles.statCard, currentTheme === "dark" ? styles.darkCard : styles.lightCard]}
@@ -414,7 +656,7 @@ const renderItemImage = (item: InventoryItem) => {
       }
     ]}>
       <Text style={[styles.itemListTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-        Itens Sem Stock
+        Produtos Sem Stock
       </Text>
       <TouchableOpacity onPress={() => setShowOutOfStockItems(false)}>
         <Ionicons name="close" size={24} color={currentTheme === "dark" ? "#fff" : "#333"} />
@@ -497,55 +739,330 @@ const renderItemImage = (item: InventoryItem) => {
         )}
       </View>
 
-      {/* Ações rápidas */}
-      <View style={styles.actionsContainer}>
-        <Text style={[styles.sectionTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-          Ações Rápidas
-        </Text>
-       
-        <View style={styles.actionButtonsRow}>
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: "#0984e3" }]}
-            onPress={() => handleButtonPress("/inventory")}
-          >
-            <Ionicons name="list" size={32} color="#fff" />
-            <Text style={styles.actionButtonText}>Ver Inventário</Text>
-          </TouchableOpacity>
+{/* Ações rápidas */}
+<View style={styles.actionsContainer}>
+  <Text style={[styles.sectionTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+    Ações Rápidas
+  </Text>
          
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: "#2ecc71" }]}
-            onPress={() => handleButtonPress("/add")}
-          >
-            <Ionicons name="add-circle" size={32} color="#fff" />
-            <Text style={styles.actionButtonText}>Adicionar Produto</Text>
-          </TouchableOpacity>
-        </View>
-       
-        <View style={styles.actionButtonsRow}>
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: "#ff5722" }]}
-            onPress={() => handleButtonPress("/statistics")}
-          >
-            <Ionicons name="bar-chart" size={32} color="#fff" />
-            <Text style={styles.actionButtonText}>Estatísticas</Text>
-          </TouchableOpacity>
+  <View style={styles.actionButtonsRow}>
+    <TouchableOpacity
+      style={[styles.actionButton, { backgroundColor: "#0984e3" }]}
+      onPress={() => handleButtonPress("/inventory")}
+    >
+      <Ionicons name="list" size={32} color="#fff" />
+      <Text style={styles.actionButtonText}>Ver Inventário</Text>
+    </TouchableOpacity>
+             
+    <TouchableOpacity
+      style={[styles.actionButton, { backgroundColor: "#2ecc71" }]}
+      onPress={() => handleButtonPress("/add")}
+    >
+      <Ionicons name="add-circle" size={32} color="#fff" />
+      <Text style={styles.actionButtonText}>Adicionar Produto</Text>
+    </TouchableOpacity>
+  </View>
          
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: "#7f8c8d" }]}
-            onPress={() => handleButtonPress("/settings")}
-          >
-            <Ionicons name="settings-outline" size={32} color="#fff" />
-            <Text style={styles.actionButtonText}>Definições</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+  <View style={styles.actionButtonsRow}>
+    <TouchableOpacity
+      style={[styles.actionButton, { backgroundColor: "#9b59b6" }]}
+      onPress={() => handleButtonPress("/quick-edit")}
+    >
+      <MaterialCommunityIcons name="pencil-plus" size={32} color="#fff" />
+      <Text style={styles.actionButtonText}>Edição Rápida</Text>
+    </TouchableOpacity>
+             
+    <TouchableOpacity
+      style={[styles.actionButton, { backgroundColor: "#7f8c8d" }]}
+      onPress={() => handleButtonPress("/settings")}
+    >
+      <Ionicons name="settings-outline" size={32} color="#fff" />
+      <Text style={styles.actionButtonText}>Definições</Text>
+    </TouchableOpacity>
+  </View>
 
-      {/* Itens recentes */}
+{/* Botão de Estatísticas com animação contínua */}
+<View style={styles.actionButtonsRow}>
+  <TouchableOpacity
+    style={[styles.statisticsButton, { backgroundColor: "#ff5722" }]}
+    onPress={() => handleButtonPress("/statistics")}
+  >
+    {/* Lado esquerdo - Texto e ícone */}
+    <View style={styles.statisticsContent}>
+      <Ionicons name="bar-chart" size={44} color="#fff" style={styles.statisticsIcon} />
+      <View style={styles.statisticsTextContainer}>
+        <Text style={styles.statisticsButtonText}>Estatísticas</Text>
+        <Text style={styles.statisticsSubtext}>
+          {inventoryStats.totalItems} produtos • {inventoryStats.lowStockItems} alertas
+        </Text>
+      </View>
+    </View>
+    
+{/* Lado direito - Animação elegante */}
+<View style={styles.animatedChart}>
+  {/* Círculo principal com respiração suave */}
+  <Animated.View 
+    style={[
+      styles.breathingCircle,
+      {
+        transform: [{ scale: pulseAnim }],
+        opacity: pulseAnim.interpolate({
+          inputRange: [1, 1.2],
+          outputRange: [0.6, 0.3],
+        }),
+      }
+    ]} 
+  />
+  
+  {/* Centro brilhante fixo */}
+  <View style={styles.centerGlow} />
+  
+  {/* Ondas concêntricas elegantes */}
+  <Animated.View 
+    style={[
+      styles.concentricWave,
+      styles.wave1Style,
+      {
+        transform: [
+          { 
+            scale: waveAnim1.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.5, 1.5],
+            })
+          }
+        ],
+        opacity: waveAnim1.interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [0.8, 0.4, 0],
+        }),
+      }
+    ]} 
+  />
+  
+  <Animated.View 
+    style={[
+      styles.concentricWave,
+      styles.wave2Style,
+      {
+        transform: [
+          { 
+            scale: waveAnim2.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.3, 1.3],
+            })
+          }
+        ],
+        opacity: waveAnim2.interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [0.6, 0.3, 0],
+        }),
+      }
+    ]} 
+  />
+  
+  <Animated.View 
+    style={[
+      styles.concentricWave,
+      styles.wave3Style,
+      {
+        transform: [
+          { 
+            scale: waveAnim3.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.4, 1.4],
+            })
+          }
+        ],
+        opacity: waveAnim3.interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [0.7, 0.35, 0],
+        }),
+      }
+    ]} 
+  />
+  
+  {/* Partículas orbitais */}
+  <Animated.View 
+    style={[
+      styles.orbitalParticle,
+      styles.particle1,
+      {
+        transform: [
+          {
+            rotate: floatAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: ['0deg', '360deg'],
+            }),
+          },
+        ],
+      }
+    ]} 
+  >
+    <View style={styles.particleDot} />
+  </Animated.View>
+  
+  <Animated.View 
+    style={[
+      styles.orbitalParticle,
+      styles.particle2,
+      {
+        transform: [
+          {
+            rotate: floatAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: ['180deg', '540deg'],
+            }),
+          },
+        ],
+      }
+    ]} 
+  >
+    <View style={[styles.particleDot, { backgroundColor: 'rgba(255, 255, 255, 0.6)' }]} />
+  </Animated.View>
+  
+  {/* Sparkles flutuantes */}
+  <Animated.View 
+    style={[
+      styles.sparkle,
+      styles.sparkle1,
+      {
+        opacity: floatAnim.interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [0, 1, 0],
+        }),
+        transform: [
+          {
+            translateY: floatAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [10, -10],
+            }),
+          },
+        ],
+      }
+    ]} 
+  />
+  
+  <Animated.View 
+    style={[
+      styles.sparkle,
+      styles.sparkle2,
+      {
+        opacity: floatAnim.interpolate({
+          inputRange: [0, 0.3, 0.7, 1],
+          outputRange: [1, 0, 1, 0],
+        }),
+        transform: [
+          {
+            translateX: floatAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [-5, 5],
+            }),
+          },
+        ],
+      }
+    ]} 
+  />
+</View>
+  </TouchableOpacity>
+</View>
+</View>
+
+{/* Dica do dia */}
+
+{/* Insight Inteligente */}
+{dailyInsight && (
+  <View style={styles.recentItemsContainer}>
+    <View style={styles.insightHeader}>
+      <Text style={[styles.sectionTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+        Análise Inteligente
+      </Text>
+      <TouchableOpacity
+        style={styles.insightButton}
+        onPress={() => setShowInsightModal(true)}
+      >
+        <MaterialIcons name="psychology" size={24} color="#fff" />
+        <Text style={styles.insightButtonText}>Ver Análise</Text>
+      </TouchableOpacity>
+    </View>
+    
+    <TouchableOpacity
+      style={[styles.insightPreview, currentTheme === "dark" ? styles.darkCard : styles.lightCard]}
+      onPress={() => setShowInsightModal(true)}
+    >
+      <MaterialIcons name="auto-awesome" size={20} color="#9b59b6" />
+      <Text style={[styles.insightPreviewText, currentTheme === "dark" ? styles.darkText : styles.lightText]} numberOfLines={2}>
+        {dailyInsight.substring(0, 80)}...
+      </Text>
+      <Ionicons name="chevron-forward" size={16} color="#9b59b6" />
+    </TouchableOpacity>
+  </View>
+)}
+
+{/* Modal de Insight Detalhado */}
+<Modal
+  visible={showInsightModal}
+  animationType="slide"
+  transparent={true}
+  onRequestClose={() => setShowInsightModal(false)}
+>
+  <View style={styles.modalOverlay}>
+    <View style={[styles.modalContent, currentTheme === "dark" ? styles.darkCard : styles.lightCard]}>
+      <View style={styles.modalHeader}>
+        <MaterialIcons name="psychology" size={28} color="#9b59b6" />
+        <Text style={[styles.modalTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+          Análise Inteligente do Inventário
+        </Text>
+        <TouchableOpacity onPress={() => setShowInsightModal(false)}>
+          <Ionicons name="close" size={24} color={currentTheme === "dark" ? "#fff" : "#333"} />
+        </TouchableOpacity>
+      </View>
+      
+      <ScrollView style={styles.modalBody}>
+        <Text style={[styles.insightFullText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+          {dailyInsight}
+        </Text>
+        
+        <View style={styles.insightStats}>
+          <View style={styles.insightStatItem}>
+            <Text style={styles.insightStatValue}>{inventoryStats.totalItems}</Text>
+            <Text style={[styles.insightStatLabel, currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+              Total de Produtos
+            </Text>
+          </View>
+          <View style={styles.insightStatItem}>
+            <Text style={[styles.insightStatValue, {color: "#f39c12"}]}>{inventoryStats.lowStockItems}</Text>
+            <Text style={[styles.insightStatLabel, currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+              Stock Baixo
+            </Text>
+          </View>
+          <View style={styles.insightStatItem}>
+            <Text style={[styles.insightStatValue, {color: "#e74c3c"}]}>{inventoryStats.outOfStockItems}</Text>
+            <Text style={[styles.insightStatLabel, currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+              Sem Stock
+            </Text>
+          </View>
+        </View>
+      </ScrollView>
+      
+      <TouchableOpacity
+        style={styles.modalCloseButton}
+        onPress={() => setShowInsightModal(false)}
+      >
+        <Text style={styles.modalCloseButtonText}>Fechar</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+</Modal>
+
+{/* Itens recentes */}
 {!loading && inventoryStats.recentlyAdded && inventoryStats.recentlyAdded.length > 0 ? (
   <View style={styles.recentItemsContainer}>
-    <Text style={[styles.sectionTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-      Adicionados Recentemente ({inventoryStats.recentlyAdded.length})
-    </Text>
+    <View style={styles.sectionHeader}>
+  <Text style={[styles.sectionTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+    Adicionados Recentemente ({inventoryStats.recentlyAdded.length})
+  </Text>
+  
+</View>
     
     {/* Filter out duplicate items by ID before mapping */}
     {(() => {
@@ -623,7 +1140,7 @@ const renderItemImage = (item: InventoryItem) => {
     </Text>
     <View style={[styles.recentItemCard, currentTheme === "dark" ? styles.darkCard : styles.lightCard, {justifyContent: 'center', alignItems: 'center', padding: 20}]}>
       <Text style={[currentTheme === "dark" ? styles.darkText : styles.lightText, {opacity: 0.7}]}>
-        Nenhum item adicionado recentemente
+        Nenhum produto adicionado recentemente
       </Text>
     </View>
   </View>
@@ -645,37 +1162,13 @@ const renderItemImage = (item: InventoryItem) => {
       {/* Rodapé */}
       <View style={styles.footer}>
         <Text style={[styles.footerText, currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary]}>
-        © 2025
-          My Inventory v1.0.0
+        2025 © My Inventory - Todos os direitos reservados
         </Text>
       </View>
     </ScrollView>
+    <AlertComponent />
     </>
   );
-}
-
-
-// Função para obter ícone baseado na categoria
-function getCategoryIcon(category?: string):
-  "package-variant" | "food-apple" | "cup" | "shower" | "tshirt-crew" |
-  "shoe-heel" | "tools" | "pencil" | "cellphone" | "television" | "book" {
-  
-  if (!category) return "package-variant";
-  
-  const categoryLower = category.toLowerCase();
-  
-  if (categoryLower.includes("alimento")) return "food-apple";
-  if (categoryLower.includes("bebida")) return "cup";
-  if (categoryLower.includes("higiene")) return "shower";
-  if (categoryLower.includes("roupa")) return "tshirt-crew";
-  if (categoryLower.includes("calçado")) return "shoe-heel";
-  if (categoryLower.includes("ferramenta")) return "tools";
-  if (categoryLower.includes("papelaria")) return "pencil";
-  if (categoryLower.includes("smartphone")) return "cellphone";
-  if (categoryLower.includes("eletrónico") || categoryLower.includes("eletrônico")) return "television";
-  if (categoryLower.includes("livro")) return "book";
-  
-  return "package-variant";
 }
 
 
@@ -737,6 +1230,87 @@ const styles = StyleSheet.create({
     height: 48,
     marginRight: 10, // Ajuste conforme necessário para o espaçamento
   },
+ breathingCircle: {
+  width: 45, // Era 35, agora é 45
+  height: 45, // Era 35, agora é 45
+  borderRadius: 22.5, // Metade da largura
+  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  position: 'absolute',
+  borderWidth: 1,
+  borderColor: 'rgba(255, 255, 255, 0.3)',
+},
+centerGlow: {
+  width: 8,
+  height: 8,
+  borderRadius: 4,
+  backgroundColor: '#fff',
+  position: 'absolute',
+  shadowColor: '#fff',
+  shadowOffset: { width: 0, height: 0 },
+  shadowOpacity: 0.8,
+  shadowRadius: 4,
+  elevation: 5,
+},
+concentricWave: {
+  position: 'absolute',
+  borderRadius: 50,
+  borderWidth: 1,
+},
+wave1Style: {
+  width: 25,
+  height: 25,
+  borderColor: 'rgba(255, 255, 255, 0.4)',
+},
+wave2Style: {
+  width: 30,
+  height: 30,
+  borderColor: 'rgba(255, 255, 255, 0.3)',
+},
+wave3Style: {
+  width: 35,
+  height: 35,
+  borderColor: 'rgba(255, 255, 255, 0.2)',
+},
+orbitalParticle: {
+  position: 'absolute',
+  width: 20,
+  height: 20,
+  justifyContent: 'center',
+  alignItems: 'flex-end',
+},
+particle1: {
+  width: 25,
+  height: 25,
+},
+particle2: {
+  width: 30,
+  height: 30,
+},
+particleDot: {
+  width: 3,
+  height: 3,
+  borderRadius: 1.5,
+  backgroundColor: 'rgba(255, 255, 255, 0.8)',
+  shadowColor: '#fff',
+  shadowOffset: { width: 0, height: 0 },
+  shadowOpacity: 0.6,
+  shadowRadius: 2,
+},
+sparkle: {
+  position: 'absolute',
+  width: 2,
+  height: 2,
+  borderRadius: 1,
+  backgroundColor: '#fff',
+},
+sparkle1: {
+  top: 15,
+  right: 10,
+},
+sparkle2: {
+  bottom: 15,
+  right: 25,
+},
   
   statsGrid: {
     flexDirection: "row",
@@ -765,6 +1339,194 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
   },
+  statisticsButton: {
+  width: "100%",
+  padding: 15,
+  borderRadius: 15,
+  flexDirection: "row",
+  alignItems: "center",
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.2,
+  shadowRadius: 5,
+  elevation: 5,
+  minHeight: 90,
+  overflow: 'visible',
+},
+statisticsChart: {
+  flex: 1,
+  marginRight: 15,
+},
+
+statisticsContent: {
+  flex: 2,
+  flexDirection: "row",
+  alignItems: "center",
+  paddingLeft: 24,
+},
+statisticsIcon: {
+  marginRight: 10,
+},
+statisticsTextContainer: {
+  flex: 1,
+},
+statisticsButtonText: {
+  color: "#fff",
+  fontSize: 18,
+  fontWeight: "bold",
+},
+statisticsSubtext: {
+  color: "rgba(255, 255, 255, 0.8)",
+  fontSize: 12,
+  marginTop: 2,
+},
+animatedChart: {
+  flex: 1,
+  height: 80, // Era 60, agora é 80 para dar mais espaço
+  width: 80,  // Adiciona largura fixa
+  position: 'relative',
+  justifyContent: 'center',
+  alignItems: 'center',
+  overflow: 'visible', // Era 'hidden', agora é 'visible' para mostrar as partículas
+},
+pulsingCircles: {
+  position: 'absolute',
+  width: '100%',
+  height: '100%',
+  justifyContent: 'center',
+  alignItems: 'center',
+},
+pulsingCircle: {
+  position: 'absolute',
+  borderRadius: 50,
+  backgroundColor: 'rgba(255, 255, 255, 0.3)',
+},
+circle1: {
+  width: 20,
+  height: 20,
+  // Animação de pulso lento
+},
+circle2: {
+  width: 30,
+  height: 30,
+  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  // Animação de pulso médio
+},
+circle3: {
+  width: 40,
+  height: 40,
+  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  // Animação de pulso rápido
+},
+waveContainer: {
+  position: 'absolute',
+  width: '100%',
+  height: '100%',
+  justifyContent: 'center',
+  alignItems: 'flex-end',
+  flexDirection: 'row',
+  paddingRight: 10,
+},
+wave: {
+  width: 3,
+  backgroundColor: 'rgba(255, 255, 255, 0.6)',
+  marginHorizontal: 1,
+  borderRadius: 2,
+},
+wave1: {
+  height: 15,
+  // Animação de altura variável
+},
+wave2: {
+  height: 25,
+  backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  // Animação de altura variável com delay
+},
+wave3: {
+  height: 20,
+  backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  // Animação de altura variável com delay maior
+},
+floatingDots: {
+  position: 'absolute',
+  width: '100%',
+  height: '100%',
+},
+floatingDot: {
+  position: 'absolute',
+  width: 4,
+  height: 4,
+  borderRadius: 2,
+  backgroundColor: 'rgba(255, 255, 255, 0.8)',
+},
+dot1: {
+  top: 10,
+  right: 20,
+  // Animação de movimento vertical
+},
+dot2: {
+  top: 30,
+  right: 35,
+  backgroundColor: 'rgba(255, 255, 255, 0.6)',
+  // Animação de movimento vertical com delay
+},
+dot3: {
+  top: 20,
+  right: 50,
+  backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  // Animação de movimento vertical com delay maior
+},
+dot4: {
+  top: 40,
+  right: 15,
+  backgroundColor: 'rgba(255, 255, 255, 0.7)',
+  // Animação de movimento vertical com delay diferente
+},
+chartContainer: {
+  flexDirection: "row",
+  alignItems: "flex-end",
+  justifyContent: "space-between",
+  height: 50,
+},
+chartBars: {
+  flexDirection: "row",
+  alignItems: "flex-end",
+  gap: 3,
+  flex: 1,
+},
+chartBar: {
+  width: 6,
+  borderRadius: 3,
+  minHeight: 4,
+},
+chartIndicators: {
+  flexDirection: "column",
+  justifyContent: "center",
+  marginLeft: 10,
+  gap: 4,
+},
+chartIndicator: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 4,
+},
+indicatorDot: {
+  width: 6,
+  height: 6,
+  borderRadius: 3,
+},
+indicatorText: {
+  color: "#fff",
+  fontSize: 10,
+  fontWeight: "600",
+},
+mainPulse: {
+  width: 30,
+  height: 30,
+  borderRadius: 15,
+  backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  position: 'absolute',
+},
   actionsContainer: {
     paddingHorizontal: 20,
     marginBottom: 25,
@@ -900,7 +1662,90 @@ const styles = StyleSheet.create({
   itemQuantityText: {
     fontWeight: "bold",
   },
-  
+  welcomeContainer: {
+  padding: 30,
+  borderRadius: 20,
+  alignItems: "center",
+  marginBottom: 20,
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.1,
+  shadowRadius: 8,
+  elevation: 4,
+},
+welcomeIcon: {
+  marginBottom: 20,
+  opacity: 0.8,
+},
+welcomeTitle: {
+  fontSize: 24,
+  fontWeight: "bold",
+  marginBottom: 15,
+  textAlign: "center",
+},
+welcomeText: {
+  fontSize: 16,
+  lineHeight: 24,
+  textAlign: "center",
+  marginBottom: 30,
+  paddingHorizontal: 10,
+},
+welcomeActions: {
+  width: "100%",
+  gap: 15,
+},
+welcomePrimaryButton: {
+  backgroundColor: "#2ecc71",
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  paddingVertical: 15,
+  paddingHorizontal: 20,
+  borderRadius: 12,
+  gap: 10,
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.2,
+  shadowRadius: 4,
+  elevation: 3,
+},
+welcomePrimaryButtonText: {
+  color: "#fff",
+  fontSize: 16,
+  fontWeight: "bold",
+},
+welcomeSecondaryButton: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  paddingVertical: 12,
+  paddingHorizontal: 20,
+  borderRadius: 12,
+  borderWidth: 1,
+  borderColor: "#3498db",
+  gap: 8,
+},
+welcomeSecondaryButtonText: {
+  color: "#3498db",
+  fontSize: 14,
+  fontWeight: "600",
+},
+sectionHeader: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: 15,
+},
+shareButton: {
+  padding: 8,
+  borderRadius: 20,
+  backgroundColor: "rgba(52, 152, 219, 0.1)",
+},
+refreshButton: {
+  padding: 8,
+  borderRadius: 20,
+  backgroundColor: "rgba(52, 152, 219, 0.1)",
+},
   recentItemQuantityText: {
     color: "#3498db",
     fontWeight: "bold",
@@ -943,6 +1788,117 @@ const styles = StyleSheet.create({
     color: "#3498db",
     fontSize: 16,
     marginRight: 5,
+  },
+  insightHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 15,
+  },
+  insightButton: {
+    backgroundColor: "#00bfff",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+  },
+  insightButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  insightPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 15,
+    borderRadius: 12,
+    gap: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  insightPreviewText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContent: {
+    width: "100%",
+    maxHeight: "80%",
+    borderRadius: 20,
+    padding: 0,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0, 0, 0, 0.1)",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    flex: 1,
+    marginLeft: 10,
+  },
+  modalBody: {
+    padding: 20,
+    maxHeight: 400,
+  },
+  insightFullText: {
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 20,
+  },
+  insightStats: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    backgroundColor: "rgba(155, 89, 182, 0.1)",
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 20,
+  },
+  insightStatItem: {
+    alignItems: "center",
+  },
+  insightStatValue: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#9b59b6",
+  },
+  insightStatLabel: {
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: "center",
+  },
+  modalCloseButton: {
+    backgroundColor: "#9b59b6",
+    margin: 20,
+    paddingVertical: 15,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalCloseButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
   noRecentItemsContainer: {
     paddingHorizontal: 20,

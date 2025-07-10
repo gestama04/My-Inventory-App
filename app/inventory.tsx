@@ -825,611 +825,616 @@ const uniqueFilteredItems = filteredAndSortedItems.filter(item => {
 
 
 return (
-  <View style={{ flex: 1 }}>
-    <KeyboardAwareScrollView
-  style={{ flex: 1 }}
-  contentContainerStyle={{ 
-    flexGrow: 1, 
-    paddingBottom: multiSelectMode ? 140 : 80 // Aumentar padding quando em modo de seleção múltipla
-  }}
-  keyboardShouldPersistTaps="handled"
-  enableOnAndroid={true}
-  enableAutomaticScroll={true}
-  extraScrollHeight={Platform.OS === "ios" ? 90 : 30}
->
-      <View style={[styles.container, currentTheme === "dark" ? styles.dark : styles.light]}>
-        {/* Header with search and sort */}
-        <View style={styles.headerContainer}>
-          <View style={[
-            styles.searchContainer,
-            currentTheme === "dark" ? styles.darkSearchContainer : styles.lightSearchContainer
-          ]}>
-            <Ionicons
-              name="search"
-              size={20}
-              color={currentTheme === "dark" ? "#bdc3c7" : "#7f8c8d"}
-              style={styles.searchIcon}
-            />
-            <TextInput
-              style={[
-                styles.searchInput,
-                currentTheme === "dark" ? styles.darkSearchInput : styles.lightSearchInput
-              ]}
-              placeholder={filterCategory ? `Filtrar em ${filterCategory}...` : "Pesquisar..."}
-              placeholderTextColor={currentTheme === "dark" ? "#bdc3c7" : "#7f8c8d"}
-              value={searchQuery}
-              onChangeText={handleSearch}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
-                <Ionicons
-                  name="close-circle"
-                  size={20}
-                  color={currentTheme === "dark" ? "#bdc3c7" : "#7f8c8d"}
-                />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <TouchableOpacity
-            style={[styles.sortButton, currentTheme === "dark" ? styles.darkSortButton : styles.lightSortButton]}
-            onPress={() => setShowSortOptions(!showSortOptions)}
-          >
-            <Ionicons name="filter" size={20} color={currentTheme === "dark" ? "#fff" : "#333"} />
-            <Text style={[styles.sortButtonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-  {sortType === 'nameAsc' ? 'Nome A-Z' : 
-   sortType === 'nameDesc' ? 'Nome Z-A' : 
-   sortType === 'quantityAsc' ? 'Menor Qtd' : 
-   sortType === 'quantityDesc' ? 'Maior Qtd' : 
-   sortType === 'newestFirst' ? 'Mais Recentes' :
-   sortType === 'oldestFirst' ? 'Mais Antigos' : 'Ordenar'}
-</Text>
-          </TouchableOpacity>
-
-          {/* Botão de seleção múltipla (apenas ícone) */}
-  <TouchableOpacity
-    style={[
-      styles.iconButton,
-      currentTheme === "dark" ? styles.darkIconButton : styles.lightIconButton,
-      multiSelectMode && styles.activeIconButton
-    ]}
-    onPress={toggleMultiSelectMode}
+  <KeyboardAvoidingView
+    behavior={Platform.OS === "ios" ? "padding" : "height"}
+    style={{ flex: 1 }}
+    keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
   >
-    <Ionicons
-      name={multiSelectMode ? "checkbox" : "checkbox-outline"}
-      size={24}
-      color={multiSelectMode ? "#3498db" : (currentTheme === "dark" ? "#fff" : "#333")}
-    />
-  </TouchableOpacity>
+    <View style={[styles.container, currentTheme === "dark" ? styles.dark : styles.light]}>
+      {/* Header with search and sort */}
+      <View style={styles.headerContainer}>
+        <View style={[
+          styles.searchContainer,
+          currentTheme === "dark" ? styles.darkSearchContainer : styles.lightSearchContainer
+        ]}>
+          <Ionicons
+            name="search"
+            size={20}
+            color={currentTheme === "dark" ? "#bdc3c7" : "#7f8c8d"}
+            style={styles.searchIcon}
+          />
+          <TextInput
+            style={[
+              styles.searchInput,
+              currentTheme === "dark" ? styles.darkSearchInput : styles.lightSearchInput
+            ]}
+            placeholder={filterCategory ? `Filtrar em ${filterCategory}...` : "Pesquisar..."}
+            placeholderTextColor={currentTheme === "dark" ? "#bdc3c7" : "#7f8c8d"}
+            value={searchQuery}
+            onChangeText={handleSearch}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+              <Ionicons
+                name="close-circle"
+                size={20}
+                color={currentTheme === "dark" ? "#bdc3c7" : "#7f8c8d"}
+              />
+            </TouchableOpacity>
+          )}
         </View>
 
-        {/* Histórico de pesquisa */}
-        {showHistory && searchHistory.length > 0 && (
-          <View style={[
-            styles.historyContainer,
-            currentTheme === "dark" ? styles.darkHistoryContainer : styles.lightHistoryContainer
-          ]}>
-            <View style={styles.historyHeader}>
-              <Text style={[
-                styles.historyTitle,
-                currentTheme === "dark" ? styles.darkText : styles.lightText
-              ]}>
-                Pesquisas recentes
-              </Text>
-              <TouchableOpacity onPress={clearSearchHistory}>
-                <Text style={styles.clearHistoryText}>Limpar</Text>
-              </TouchableOpacity>
-            </View>
-            {searchHistory.map((term, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.historyItem}
-                onPress={() => selectHistoryItem(term)}
-              >
-                <Ionicons name="time-outline" size={16} color={currentTheme === "dark" ? "#bbb" : "#555"} />
-                <Text style={[
-                  styles.historyItemText,
-                  currentTheme === "dark" ? styles.darkText : styles.lightText
-                ]}>
-                  {term}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Category filter chips */}
-        {showFilters && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.categoriesContainer}
-            contentContainerStyle={styles.categoriesContent}
-          >
-            {/* Botão de limpar filtros */}
-    <TouchableOpacity
-      style={[styles.categoryChip, styles.clearFilterChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-      onPress={clearFilters}
-    >
-      <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-        Limpar Filtros
-      </Text>
-    </TouchableOpacity>
-            {/* A-Z (All Items) */}
-            <TouchableOpacity
-              style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-              onPress={() => {
-                handleSetSortType('nameAsc');
-                setShowFilters(false);
-              }}
-            >
-              <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                A-Z
-              </Text>
-            </TouchableOpacity>
-
-            {/* Z-A (All Items) */}
-            <TouchableOpacity
-              style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-              onPress={() => {
-                handleSetSortType('nameDesc');
-                setShowFilters(false);
-              }}
-            >
-              <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                Z-A
-              </Text>
-            </TouchableOpacity>
-
-            {/* Menor Quantidade (All Items) */}
-            <TouchableOpacity
-              style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-              onPress={() => {
-                handleSetSortType('quantityAsc');
-                setShowFilters(false);
-              }}
-            >
-              <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                Menor Qtd
-              </Text>
-            </TouchableOpacity>
-
-            {/* Maior Quantidade (All Items) */}
-            <TouchableOpacity
-              style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-              onPress={() => {
-                handleSetSortType('quantityDesc');
-                setShowFilters(false);
-              }}
-            >
-              <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                Maior Qtd
-              </Text>
-            </TouchableOpacity>
-
-{/* Mais Recentes */}
-<TouchableOpacity
-  style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-  onPress={() => {
-    handleSetSortType('newestFirst');
-    setShowFilters(false);
-  }}
->
-  <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-    Mais Recentes
-  </Text>
-</TouchableOpacity>
-
-{/* Mais Antigos */}
-<TouchableOpacity
-  style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
-  onPress={() => {
-    handleSetSortType('oldestFirst');
-    setShowFilters(false);
-  }}
->
-  <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-    Mais Antigos
-  </Text>
-</TouchableOpacity>
-
-            {/* Existing category filters */}
-            {uniqueCategories.map(category => (
-              <TouchableOpacity
-                key={category}
-                style={[
-                  styles.categoryChip,
-                  currentTheme === "dark" ? styles.darkChip : styles.lightChip
-                ]}
-                onPress={() => {
-                  handleSetFilterCategory(category);
-                  setShowFilters(false);
-                }}
-              >
-                <Text style={[
-                  styles.categoryChipText,
-                  currentTheme === "dark" ? styles.darkText : styles.lightText
-                ]}>
-                  {category}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        )}
-
-        {/* Modal de opções de ordenação */}
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={showSortOptions}
-          onRequestClose={() => setShowSortOptions(false)}
-        >
-          <TouchableOpacity
-            style={styles.modalOverlay}
-            activeOpacity={1}
-            onPress={() => setShowSortOptions(false)}
-          >
-            <View style={[styles.modalContent, currentTheme === "dark" ? styles.darkModal : styles.lightModal]}>
-              <Text style={[styles.modalTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                Ordenar por
-              </Text>
-              
-              <TouchableOpacity
-                style={[styles.sortOption, sortType === 'nameAsc' && styles.selectedOption]}
-                onPress={() => handleSort('nameAsc')}
-              >
-                <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                  Nome (A-Z)
-                </Text>
-                {sortType === 'nameAsc' && (
-                  <Ionicons name="checkmark" size={20} color="#3498db" />
-                )}
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[styles.sortOption, sortType === 'nameDesc' && styles.selectedOption]}
-                onPress={() => handleSort('nameDesc')}
-              >
-                <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                  Nome (Z-A)
-                </Text>
-                {sortType === 'nameDesc' && (
-                                    <Ionicons name="checkmark" size={20} color="#3498db" />
-                                  )}
-                                </TouchableOpacity>
-                                
-                                <TouchableOpacity
-                                  style={[styles.sortOption, sortType === 'quantityAsc' && styles.selectedOption]}
-                                  onPress={() => handleSort('quantityAsc')}
-                                >
-                                  <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                                    Quantidade (Menor)
-                                  </Text>
-                                  {sortType === 'quantityAsc' && (
-                                    <Ionicons name="checkmark" size={20} color="#3498db" />
-                                  )}
-                                </TouchableOpacity>
-                                
-                                <TouchableOpacity
-                                  style={[styles.sortOption, sortType === 'quantityDesc' && styles.selectedOption]}
-                                  onPress={() => handleSort('quantityDesc')}
-                                >
-                                  <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-                                    Quantidade (Maior)
-                                  </Text>
-                                  {sortType === 'quantityDesc' && (
-                                    <Ionicons name="checkmark" size={20} color="#3498db" />
-                                  )}
-                                </TouchableOpacity>
-
-<Modal
-  animationType="slide"
-  transparent={true}
-  visible={bulkActionModalVisible}
-  onRequestClose={() => setBulkActionModalVisible(false)}
->
-  <TouchableOpacity
-    style={styles.modalOverlay}
-    activeOpacity={1}
-    onPress={() => setBulkActionModalVisible(false)}
-  >
-    <View style={[
-      styles.bulkActionModal,
-      currentTheme === "dark" ? styles.darkModal : styles.lightModal
-    ]}>
-      <Text style={[styles.modalTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-        Atualizar Quantidade
-      </Text>
-      
-      <Text style={[styles.modalSubtitle, currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary]}>
-        Defina a nova quantidade para {selectedItems.size} produtos selecionados
-      </Text>
-      
-      <TextInput
-        style={[
-          styles.bulkQuantityInput,
-          currentTheme === "dark" 
-            ? { backgroundColor: '#333', color: '#fff', borderColor: '#444' } 
-            : { backgroundColor: '#f5f5f5', color: '#333', borderColor: '#ddd' }
-        ]}
-        value={bulkQuantityChange}
-        onChangeText={setBulkQuantityChange}
-        placeholder="Nova quantidade"
-        placeholderTextColor={currentTheme === "dark" ? "#aaa" : "#999"}
-        keyboardType="numeric"
-      />
-      
-      <View style={styles.modalButtonContainer}>
         <TouchableOpacity
-          style={[styles.modalButton, styles.cancelButton]}
-          onPress={() => setBulkActionModalVisible(false)}
+          style={[styles.sortButton, currentTheme === "dark" ? styles.darkSortButton : styles.lightSortButton]}
+          onPress={() => setShowSortOptions(!showSortOptions)}
         >
-          <Text style={styles.modalButtonText}>Cancelar</Text>
+          <Ionicons name="filter" size={20} color={currentTheme === "dark" ? "#fff" : "#333"} />
+          <Text style={[styles.sortButtonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+            {sortType === 'nameAsc' ? 'Nome A-Z' : 
+             sortType === 'nameDesc' ? 'Nome Z-A' : 
+             sortType === 'quantityAsc' ? 'Menor Qtd' : 
+             sortType === 'quantityDesc' ? 'Maior Qtd' : 
+             sortType === 'newestFirst' ? 'Mais Recentes' :
+             sortType === 'oldestFirst' ? 'Mais Antigos' : 'Ordenar'}
+          </Text>
         </TouchableOpacity>
-        
+
+        {/* Botão de seleção múltipla (apenas ícone) */}
         <TouchableOpacity
-          style={[styles.modalButton, styles.confirmButton]}
-          onPress={updateSelectedItemsQuantity}
+          style={[
+            styles.iconButton,
+            currentTheme === "dark" ? styles.darkIconButton : styles.lightIconButton,
+            multiSelectMode && styles.activeIconButton
+          ]}
+          onPress={toggleMultiSelectMode}
         >
-          <Text style={styles.modalButtonText}>Atualizar</Text>
+          <Ionicons
+            name={multiSelectMode ? "checkbox" : "checkbox-outline"}
+            size={24}
+            color={multiSelectMode ? "#3498db" : (currentTheme === "dark" ? "#fff" : "#333")}
+          />
         </TouchableOpacity>
       </View>
-    </View>
-  </TouchableOpacity>
-</Modal>
 
-                                <TouchableOpacity
-  style={[styles.sortOption, sortType === 'newestFirst' && styles.selectedOption]}
-  onPress={() => handleSort('newestFirst')}
->
-  <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-    Mais Recentes
-  </Text>
-  {sortType === 'newestFirst' && (
-    <Ionicons name="checkmark" size={20} color="#3498db" />
-  )}
-</TouchableOpacity>
-
-<TouchableOpacity
-  style={[styles.sortOption, sortType === 'oldestFirst' && styles.selectedOption]}
-  onPress={() => handleSort('oldestFirst')}
->
-  <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-    Mais Antigos
-  </Text>
-  {sortType === 'oldestFirst' && (
-    <Ionicons name="checkmark" size={20} color="#3498db" />
-  )}
-</TouchableOpacity>
-                              </View>
-                            </TouchableOpacity>
-                          </Modal>
-                  
-                          {loading ? (
-          <View style={styles.loader}>
-            <ActivityIndicator size="large" color="#3498db" />
-          </View>
-        ) : filteredAndSortedItems.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="basket-outline" size={64} color="#bdc3c7" />
-            <Text style={[styles.emptyText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-              {searchQuery.trim() !== ''
-                ? "Nenhum produto encontrado para esta pesquisa"
-                : "O seu inventário está vazio"}
+      {/* Histórico de pesquisa */}
+      {showHistory && searchHistory.length > 0 && (
+        <View style={[
+          styles.historyContainer,
+          currentTheme === "dark" ? styles.darkHistoryContainer : styles.lightHistoryContainer
+        ]}>
+          <View style={styles.historyHeader}>
+            <Text style={[
+              styles.historyTitle,
+              currentTheme === "dark" ? styles.darkText : styles.lightText
+            ]}>
+              Pesquisas recentes
             </Text>
+            <TouchableOpacity onPress={clearSearchHistory}>
+              <Text style={styles.clearHistoryText}>Limpar</Text>
+            </TouchableOpacity>
           </View>
-        ) : (
-          <View style={styles.listContainer}>
-            {uniqueFilteredItems.map((item, index) => (
-  <TouchableHighlight
-    key={`${item.id || 'no-id'}-${index}`}
-    underlayColor={currentTheme === "dark" ? "#444" : "#f0f0f0"}
-    onLongPress={() => multiSelectMode ? toggleItemSelection(item.id) : handleItemLongPress(item)}
-    onPress={() => {
-      if (multiSelectMode) {
-        toggleItemSelection(item.id);
-      } else {
-        handleItemPress(item);
-      }
-    }}
-    delayLongPress={500}
-    style={styles.itemCardWrapper}
-  >
-    <View style={[
-      styles.itemCard,
-      currentTheme === "dark" ? styles.darkCard : styles.lightCard,
-      isOutOfStock(item.quantity) && [
-        styles.outOfStockCard,
-        { borderLeftColor: '#e74c3c' }
-      ],
-      isLowStock(item) && [
-        styles.lowStockCard,
-        { borderLeftColor: '#f39c12' }
-      ],
-      !isOutOfStock(item.quantity) && !isLowStock(item) && [
-        styles.inStockCard,
-        { borderLeftColor: '#2ecc71' }
-      ],
-      // Adicionar estilo para itens selecionados
-      item.id && selectedItems.has(item.id) && styles.selectedItemCard
-    ]}>
-      {/* Indicador de seleção */}
-      {multiSelectMode && (
-        <View style={styles.selectionIndicator}>
-          <Ionicons 
-            name={item.id && selectedItems.has(item.id) ? "checkmark-circle" : "ellipse-outline"} 
-            size={24} 
-            color={item.id && selectedItems.has(item.id) ? "#3498db" : "#bbb"} 
-          />
+          {searchHistory.map((term, index) => (
+            <TouchableOpacity
+              key={index}
+              style={styles.historyItem}
+              onPress={() => selectHistoryItem(term)}
+            >
+              <Ionicons name="time-outline" size={16} color={currentTheme === "dark" ? "#bbb" : "#555"} />
+              <Text style={[
+                styles.historyItemText,
+                currentTheme === "dark" ? styles.darkText : styles.lightText
+              ]}>
+                {term}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       )}
-      
-      {/* Conteúdo existente do item */}
-      <View style={[styles.itemCardContent, multiSelectMode && { marginLeft: 30 }]}>
-                    {/* Show item photo if available, otherwise show category icon */}
-                    {item.photoUrl ? (
-                      <Image
-                        source={{ uri: item.photoUrl }}
-                        style={styles.itemThumbnail}
+
+      {/* Category filter chips */}
+      {showFilters && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoriesContainer}
+          contentContainerStyle={styles.categoriesContent}
+        >
+          {/* Botão de limpar filtros */}
+          <TouchableOpacity
+            style={[styles.categoryChip, styles.clearFilterChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
+            onPress={clearFilters}
+          >
+            <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              Limpar Filtros
+            </Text>
+          </TouchableOpacity>
+          
+          {/* A-Z (All Items) */}
+          <TouchableOpacity
+            style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
+            onPress={() => {
+              handleSetSortType('nameAsc');
+              setShowFilters(false);
+            }}
+          >
+            <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              A-Z
+            </Text>
+          </TouchableOpacity>
+
+          {/* Z-A (All Items) */}
+          <TouchableOpacity
+            style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
+            onPress={() => {
+              handleSetSortType('nameDesc');
+              setShowFilters(false);
+            }}
+          >
+            <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              Z-A
+            </Text>
+          </TouchableOpacity>
+
+          {/* Menor Quantidade (All Items) */}
+          <TouchableOpacity
+            style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
+            onPress={() => {
+              handleSetSortType('quantityAsc');
+              setShowFilters(false);
+            }}
+          >
+            <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              Menor Qtd
+            </Text>
+          </TouchableOpacity>
+
+          {/* Maior Quantidade (All Items) */}
+          <TouchableOpacity
+            style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
+            onPress={() => {
+              handleSetSortType('quantityDesc');
+              setShowFilters(false);
+            }}
+          >
+            <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              Maior Qtd
+            </Text>
+          </TouchableOpacity>
+
+          {/* Mais Recentes */}
+          <TouchableOpacity
+            style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
+            onPress={() => {
+              handleSetSortType('newestFirst');
+              setShowFilters(false);
+            }}
+          >
+            <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              Mais Recentes
+            </Text>
+          </TouchableOpacity>
+
+          {/* Mais Antigos */}
+          <TouchableOpacity
+            style={[styles.categoryChip, currentTheme === "dark" ? styles.darkChip : styles.lightChip]}
+            onPress={() => {
+              handleSetSortType('oldestFirst');
+              setShowFilters(false);
+            }}
+          >
+            <Text style={[styles.categoryChipText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              Mais Antigos
+            </Text>
+          </TouchableOpacity>
+
+          {/* Existing category filters */}
+          {uniqueCategories.map(category => (
+            <TouchableOpacity
+              key={category}
+              style={[
+                styles.categoryChip,
+                currentTheme === "dark" ? styles.darkChip : styles.lightChip
+              ]}
+              onPress={() => {
+                handleSetFilterCategory(category);
+                setShowFilters(false);
+              }}
+            >
+              <Text style={[
+                styles.categoryChipText,
+                currentTheme === "dark" ? styles.darkText : styles.lightText
+              ]}>
+                {category}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
+      {/* Modal de opções de ordenação */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showSortOptions}
+        onRequestClose={() => setShowSortOptions(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSortOptions(false)}
+        >
+          <View style={[styles.modalContent, currentTheme === "dark" ? styles.darkModal : styles.lightModal]}>
+            <Text style={[styles.modalTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              Ordenar por
+            </Text>
+            
+            <TouchableOpacity
+              style={[styles.sortOption, sortType === 'nameAsc' && styles.selectedOption]}
+              onPress={() => handleSort('nameAsc')}
+            >
+              <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+                Nome (A-Z)
+              </Text>
+              {sortType === 'nameAsc' && (
+                <Ionicons name="checkmark" size={20} color="#3498db" />
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.sortOption, sortType === 'nameDesc' && styles.selectedOption]}
+              onPress={() => handleSort('nameDesc')}
+            >
+              <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+                Nome (Z-A)
+              </Text>
+              {sortType === 'nameDesc' && (
+                <Ionicons name="checkmark" size={20} color="#3498db" />
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.sortOption, sortType === 'quantityAsc' && styles.selectedOption]}
+              onPress={() => handleSort('quantityAsc')}
+            >
+              <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+                Quantidade (Menor)
+              </Text>
+              {sortType === 'quantityAsc' && (
+                <Ionicons name="checkmark" size={20} color="#3498db" />
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.sortOption, sortType === 'quantityDesc' && styles.selectedOption]}
+              onPress={() => handleSort('quantityDesc')}
+            >
+              <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+                Quantidade (Maior)
+              </Text>
+              {sortType === 'quantityDesc' && (
+                <Ionicons name="checkmark" size={20} color="#3498db" />
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.sortOption, sortType === 'newestFirst' && styles.selectedOption]}
+              onPress={() => handleSort('newestFirst')}
+            >
+              <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+                Mais Recentes
+              </Text>
+              {sortType === 'newestFirst' && (
+                <Ionicons name="checkmark" size={20} color="#3498db" />
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.sortOption, sortType === 'oldestFirst' && styles.selectedOption]}
+              onPress={() => handleSort('oldestFirst')}
+            >
+              <Text style={[styles.sortOptionText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+                Mais Antigos
+              </Text>
+              {sortType === 'oldestFirst' && (
+                <Ionicons name="checkmark" size={20} color="#3498db" />
+              )}
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Modal de ações em lote */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={bulkActionModalVisible}
+        onRequestClose={() => setBulkActionModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setBulkActionModalVisible(false)}
+        >
+          <View style={[
+            styles.bulkActionModal,
+            currentTheme === "dark" ? styles.darkModal : styles.lightModal
+          ]}>
+            <Text style={[styles.modalTitle, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              Atualizar Quantidade
+            </Text>
+            
+            <Text style={[styles.modalSubtitle, currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+              Defina a nova quantidade para {selectedItems.size} produtos selecionados
+            </Text>
+            
+            <TextInput
+              style={[
+                styles.bulkQuantityInput,
+                currentTheme === "dark" 
+                  ? { backgroundColor: '#333', color: '#fff', borderColor: '#444' } 
+                  : { backgroundColor: '#f5f5f5', color: '#333', borderColor: '#ddd' }
+              ]}
+              value={bulkQuantityChange}
+              onChangeText={setBulkQuantityChange}
+              placeholder="Nova quantidade"
+              placeholderTextColor={currentTheme === "dark" ? "#aaa" : "#999"}
+              keyboardType="numeric"
+            />
+            
+            <View style={styles.modalButtonContainer}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setBulkActionModalVisible(false)}
+>
+                <Text style={styles.modalButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton]}
+                onPress={updateSelectedItemsQuantity}
+              >
+                <Text style={styles.modalButtonText}>Atualizar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Lista principal usando FlatList */}
+      {loading ? (
+        <View style={styles.loader}>
+          <ActivityIndicator size="large" color="#3498db" />
+        </View>
+      ) : filteredAndSortedItems.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="basket-outline" size={64} color="#bdc3c7" />
+          <Text style={[styles.emptyText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+            {searchQuery.trim() !== ''
+              ? "Nenhum produto encontrado para esta pesquisa"
+              : "O seu inventário está vazio"}
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={uniqueFilteredItems}
+          keyExtractor={(item, index) => `${item.id || 'no-id'}-${index}`}
+          renderItem={({ item, index }) => (
+            <TouchableHighlight
+              underlayColor={currentTheme === "dark" ? "#444" : "#f0f0f0"}
+              onLongPress={() => multiSelectMode ? toggleItemSelection(item.id) : handleItemLongPress(item)}
+              onPress={() => {
+                if (multiSelectMode) {
+                  toggleItemSelection(item.id);
+                } else {
+                  handleItemPress(item);
+                }
+              }}
+              delayLongPress={500}
+              style={styles.itemCardWrapper}
+            >
+              <View style={[
+                styles.itemCard,
+                currentTheme === "dark" ? styles.darkCard : styles.lightCard,
+                isOutOfStock(item.quantity) && [
+                  styles.outOfStockCard,
+                  { borderLeftColor: '#e74c3c' }
+                ],
+                isLowStock(item) && [
+                  styles.lowStockCard,
+                  { borderLeftColor: '#f39c12' }
+                ],
+                !isOutOfStock(item.quantity) && !isLowStock(item) && [
+                  styles.inStockCard,
+                  { borderLeftColor: '#2ecc71' }
+                ],
+                // Adicionar estilo para itens selecionados
+                item.id && selectedItems.has(item.id) && styles.selectedItemCard
+              ]}>
+                {/* Indicador de seleção */}
+                {multiSelectMode && (
+                  <View style={styles.selectionIndicator}>
+                    <Ionicons 
+                      name={item.id && selectedItems.has(item.id) ? "checkmark-circle" : "ellipse-outline"} 
+                      size={24} 
+                      color={item.id && selectedItems.has(item.id) ? "#3498db" : "#bbb"} 
+                    />
+                  </View>
+                )}
+                
+                {/* Conteúdo do item */}
+                <View style={[styles.itemCardContent, multiSelectMode && { marginLeft: 30 }]}>
+                  {/* Mostrar foto do item se disponível, senão mostrar ícone da categoria */}
+                  {item.photoUrl ? (
+                    <Image
+                      source={{ uri: item.photoUrl }}
+                      style={styles.itemThumbnail}
+                      resizeMode="cover"
+                    />
+                  ) : item.photo ? (
+                    <Image
+                      source={{ uri: `data:image/jpeg;base64,${item.photo}` }}
+                      style={styles.itemThumbnail}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={[
+                      styles.categoryIconContainer,
+                      isOutOfStock(item.quantity) && { backgroundColor: "rgba(231, 76, 60, 0.1)" },
+                      isLowStock(item) && { backgroundColor: "rgba(243, 156, 18, 0.1)" },
+                      !isOutOfStock(item.quantity) && !isLowStock(item) && { backgroundColor: "rgba(46, 204, 113, 0.1)" }
+                    ]}>
+                      <MaterialCommunityIcons
+                        name={getCategoryIcon(item.category)}
+                        size={24}
+                        color={
+                          isOutOfStock(item.quantity) ? "#e74c3c" :
+                          isLowStock(item) ? "#f39c12" : "#2ecc71"
+                        }
                       />
-                    ) : item.photo ? (
-                      <Image
-                        source={{ uri: `data:image/jpeg;base64,${item.photo}` }}
-                        style={styles.itemThumbnail}
-                      />
-                    ) : (
-                      <View style={[
-                        styles.categoryIconContainer,
-                        isOutOfStock(item.quantity) && { backgroundColor: "rgba(231, 76, 60, 0.1)" },
-                        isLowStock(item) && { backgroundColor: "rgba(243, 156, 18, 0.1)" },
-                        !isOutOfStock(item.quantity) && !isLowStock(item) && { backgroundColor: "rgba(46, 204, 113, 0.1)" }
-                      ]}>
-                        <MaterialCommunityIcons
-                          name={getCategoryIcon(item.category)}
-                          size={24}
-                          color={
-                            isOutOfStock(item.quantity) ? "#e74c3c" :
-                            isLowStock(item) ? "#f39c12" : "#2ecc71"
-                          }
-                        />
+                    </View>
+                  )}
+                  
+                  <View style={styles.itemInfo}>
+                    <Text
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
+                      style={[
+                        styles.itemName,
+                        currentTheme === "dark" ? styles.darkText : styles.lightText,
+                        isOutOfStock(item.quantity) && styles.outOfStockText,
+                        isLowStock(item) && styles.lowStockText
+                      ]}
+                    >
+                      {item.name}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.itemCategory,
+                        currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary
+                      ]}
+                    >
+                      {item.category}
+                    </Text>
+                  </View>
+                  
+                  <View style={styles.quantityContainer}>
+                    <Text style={[
+                      styles.quantityText,
+                      {
+                        color: isOutOfStock(item.quantity) ? "#e74c3c" :
+                               isLowStock(item) ? "#f39c12" : "#2ecc71"
+                      }
+                    ]}>
+                      {item.quantity}
+                    </Text>
+                    
+                    {isOutOfStock(item.quantity) && (
+                      <View style={[styles.stockBadge, { backgroundColor: '#e74c3c' }]}>
+                        <Text style={styles.badgeText}>Sem stock</Text>
                       </View>
                     )}
                     
-                    <View style={styles.itemInfo}>
-                      <Text
-                        numberOfLines={2}
-                        ellipsizeMode="tail"
-                        style={[
-                          styles.itemName,
-                          currentTheme === "dark" ? styles.darkText : styles.lightText,
-                          isOutOfStock(item.quantity) && styles.outOfStockText,
-                          isLowStock(item) && styles.lowStockText
-                        ]}
-                      >
-                        {item.name}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.itemCategory,
-                          currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary
-                        ]}
-                      >
-                        {item.category}
-                      </Text>
-                    </View>
+                    {isLowStock(item) && (
+                      <View style={[styles.stockBadge, { backgroundColor: '#f39c12' }]}>
+                        <Text style={styles.badgeText}>Stock Baixo</Text>
+                      </View>
+                    )}
                     
-                    <View style={styles.quantityContainer}>
-                      <Text style={[
-                        styles.quantityText,
-                        {
-                          color: isOutOfStock(item.quantity) ? "#e74c3c" :
-                                 isLowStock(item) ? "#f39c12" : "#2ecc71"
-                        }
-                      ]}>
-                        {item.quantity}
-                      </Text>
-                      
-                      {isOutOfStock(item.quantity) && (
-                        <View style={[styles.stockBadge, { backgroundColor: '#e74c3c' }]}>
-                          <Text style={styles.badgeText}>Sem stock</Text>
-                        </View>
-                      )}
-                      
-                      {isLowStock(item) && (
-  <View style={[styles.stockBadge, { backgroundColor: '#f39c12' }]}>
-    <Text style={styles.badgeText}>Stock Baixo</Text>
-  </View>
-)}
-                      
-                      {!isOutOfStock(item.quantity) && !isLowStock(item) && (
-                        <View style={[styles.stockBadge, { backgroundColor: '#2ecc71' }]}>
-                          <Text style={styles.badgeText}>Em stock</Text>
-                        </View>
-                      )}
-                    </View>
+                    {!isOutOfStock(item.quantity) && !isLowStock(item) && (
+                      <View style={[styles.stockBadge, { backgroundColor: '#2ecc71' }]}>
+                        <Text style={styles.badgeText}>Em stock</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
-              </TouchableHighlight>
-            ))}
-          </View>
-        )}
-      </View>
-    </KeyboardAwareScrollView>
-    
-{multiSelectMode && (
-  <View style={[
-    styles.multiSelectBar,
-    currentTheme === "dark" ? styles.darkMultiSelectBar : styles.lightMultiSelectBar
-  ]}>
-    <View style={styles.multiSelectInfo}>
-      <Text style={[styles.multiSelectText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-        {selectedItems.size} produtos selecionados
-      </Text>
-    </View>
-    
-    <View style={styles.multiSelectActions}>
-      <TouchableOpacity 
-        style={styles.multiSelectButton}
-        onPress={selectAllItems}
-      >
-        <Ionicons name="checkmark-done-outline" size={22} color="#3498db" />
-      </TouchableOpacity>
-      
-      <TouchableOpacity 
-        style={styles.multiSelectButton}
-        onPress={clearSelection}
-      >
-        <Ionicons name="close-circle-outline" size={22} color="#e74c3c" />
-      </TouchableOpacity>
-      
-      <TouchableOpacity 
-        style={styles.multiSelectButton}
-        onPress={deleteSelectedItems}
-        disabled={selectedItems.size === 0}
-      >
-        <Ionicons name="trash-outline" size={22} color={selectedItems.size > 0 ? "#e74c3c" : "#bbb"} />
-      </TouchableOpacity>
-    </View>
-  </View>
-)}
+              </View>
+            </TouchableHighlight>
+          )}
+          contentContainerStyle={[
+            styles.listContainer,
+            { paddingBottom: multiSelectMode ? 140 : 100 } // Espaço extra para o footer
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        />
+      )}
 
-    <View style={[
-      styles.footerContainer,
-      currentTheme === "dark" ? styles.darkFooter : styles.lightFooter,
-      { position: 'absolute', bottom: 0, left: 0, right: 0 } // Torna o footer fixo
-    ]}>
-      <View style={styles.buttonContainer}>
-  <TouchableOpacity
-    style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
-    onPress={() => router.replace("/add")}
-  >
-    <Ionicons name="add-circle" size={24} color={currentTheme === "dark" ? "#fff" : "green"} />
-    <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-      Adicionar
-    </Text>
-  </TouchableOpacity>
-  
-  <TouchableOpacity
-    style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
-    onPress={handleClearInventory}
-  >
-    <Ionicons name="trash-bin" size={24} color={currentTheme === "dark" ? "#fff" : "red"} />
-    <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-      Eliminar Tudo
-    </Text>
-  </TouchableOpacity>
-</View>
-      
-      <Text style={[styles.longPressHint, currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary]}>
-  {multiSelectMode 
-    ? "Toque nos produtos para selecioná-los." 
-    : "Toque num produto para ver os seus detalhes. Toque longo para mais opções."}
-</Text>
+      {/* Barra de seleção múltipla */}
+      {multiSelectMode && (
+        <View style={[
+          styles.multiSelectBar,
+          currentTheme === "dark" ? styles.darkMultiSelectBar : styles.lightMultiSelectBar
+        ]}>
+          <View style={styles.multiSelectInfo}>
+            <Text style={[styles.multiSelectText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              {selectedItems.size} produtos selecionados
+            </Text>
+          </View>
+          
+          <View style={styles.multiSelectActions}>
+            <TouchableOpacity 
+              style={styles.multiSelectButton}
+              onPress={selectAllItems}
+            >
+              <Ionicons name="checkmark-done-outline" size={22} color="#3498db" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.multiSelectButton}
+              onPress={clearSelection}
+            >
+              <Ionicons name="close-circle-outline" size={22} color="#e74c3c" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.multiSelectButton}
+              onPress={deleteSelectedItems}
+              disabled={selectedItems.size === 0}
+            >
+              <Ionicons name="trash-outline" size={22} color={selectedItems.size > 0 ? "#e74c3c" : "#bbb"} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Footer fixo */}
+      <View style={[
+        styles.footerContainer,
+        currentTheme === "dark" ? styles.darkFooter : styles.lightFooter
+      ]}>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity
+            style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
+            onPress={() => router.replace("/add")}
+          >
+            <Ionicons name="add-circle" size={24} color={currentTheme === "dark" ? "#fff" : "green"} />
+            <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              Adicionar
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.button, currentTheme === "dark" ? styles.darkButton : styles.lightButton]}
+            onPress={handleClearInventory}
+          >
+            <Ionicons name="trash-bin" size={24} color={currentTheme === "dark" ? "#fff" : "red"} />
+            <Text style={[styles.buttonText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
+              Eliminar Tudo
+            </Text>
+          </TouchableOpacity>
+        </View>
+        
+        <Text style={[styles.longPressHint, currentTheme === "dark" ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+          {multiSelectMode 
+            ? "Toque nos produtos para selecioná-los." 
+            : "Toque num produto para ver os seus detalhes. Toque longo para mais opções."}
+        </Text>
+      </View>
     </View>
     
     {/* AlertComponent fora de tudo para não ser afetado pelo scroll */}
     <AlertComponent />
-  </View>
+  </KeyboardAvoidingView>
 );
 };
 

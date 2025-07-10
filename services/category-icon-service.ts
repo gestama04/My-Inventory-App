@@ -146,7 +146,7 @@ async function getIconForCategory(category: string): Promise<string> {
   try {
     // 2. Lista de ícones disponíveis (usando a constante do serviço)
     // 3. Modelo Gemini (usando a instância genAI do serviço)
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     
     // 4. Prompt (EXATAMENTE como no CategoriesScreen)
     const prompt = `

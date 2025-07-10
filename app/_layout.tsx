@@ -144,6 +144,9 @@ function AppLayout() {
         <Stack.Screen name="categories" options={{ title: "Categorias" }} />
         <Stack.Screen name="notifications" options={{ title: "Notificações" }} />
         <Stack.Screen name="home" options={{ headerShown: false }} />
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="setup" options={{ headerShown: false }} />
+        <Stack.Screen name="quick-edit" options={{ title: "Edição Rápida" }} />
       </Stack>
     </View>
   );

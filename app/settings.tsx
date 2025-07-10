@@ -4,7 +4,6 @@ import { useTheme } from "./theme-context";
 import { useRouter } from "expo-router";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
-import * as DocumentPicker from "expo-document-picker";
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import { Linking } from "react-native";
@@ -470,33 +469,7 @@ const updateItemThreshold = async (index: number, newThresholdValue: string | un
     }
   };
 
-  // Exportar como JSON - modificado para usar dados do Firebase
-  const exportAsJSON = async () => {
-    if (!currentUser || inventory.length === 0) {
-      showAlert("Erro", "Nenhum dado para exportar.", [
-        { text: "OK", onPress: () => {} }
-      ]);
-      return;
-    }
-    
-    try {
-      // Preparar dados para exportação (remover campos internos do Firebase)
-      const exportData = inventory.map(item => {
-        const { id, userId, createdAt, updatedAt, ...exportableData } = item as any;
-        return exportableData;
-      });
-      
-      const jsonString = JSON.stringify(exportData, null, 2);
-      const fileUri = FileSystem.documentDirectory + "backup.json";
-      await FileSystem.writeAsStringAsync(fileUri, jsonString);
-      await Sharing.shareAsync(fileUri);
-    } catch (error) {
-      console.error("Erro ao exportar JSON:", error);
-      showAlert("Erro", "Falha ao exportar JSON.", [
-        { text: "OK", onPress: () => {} }
-      ]);
-    }
-  };
+
 
   // Função de exportação principal - modificada para Firebase
   const exportData = async () => {
@@ -523,91 +496,13 @@ const updateItemThreshold = async (index: number, newThresholdValue: string | un
           onPress: () => exportAsPDF()
         },
         {
-          text: "CSV (Excel)",
+          text: "Excel (CSV)",
           onPress: () => exportAsCSV()
-        },
-        {
-          text: "JSON (Para importar na app)",
-          onPress: () => exportAsJSON()
         },
         { text: "Cancelar", style: "cancel", onPress: () => {} }
       ]
     );
   };
-
-  // Importar dados - modificado para Firebase
-const importData = async () => {
-  if (!currentUser) {
-    showAlert("Erro", "Utilizador não autenticado", [{ text: "OK", onPress: () => {} }]);
-    return;
-  }
-
-  try {
-    // Mostrar alerta com spinner durante a importação
-    showAlert(
-      "Importação",
-      "A processar o ficheiro. Isto pode demorar algum tempo...",
-      [{ text: "Cancelar", style: "cancel", onPress: () => {} }],
-      true // Ativar spinner
-    );
-
-    const result = await DocumentPicker.getDocumentAsync({
-      type: ["application/json"],
-      multiple: false
-    });
-
-    if (result.canceled || !result.assets || result.assets.length === 0) {
-      showAlert("Importação", "Operação cancelada ou nenhum ficheiro selecionado.", [{ text: "OK", onPress: () => {} }]);
-      return;
-    }
-
-    const fileContent = await FileSystem.readAsStringAsync(result.assets[0].uri);
-    const parsedData = JSON.parse(fileContent);
-
-    if (!Array.isArray(parsedData)) {
-      showAlert("Erro", "O ficheiro JSON deve conter uma lista (array) de Produtos.", [{ text: "OK", onPress: () => {} }]);
-      return;
-    }
-
-    if (parsedData.length === 0) {
-      showAlert("Informação", "O ficheiro de importação está vazio.", [{ text: "OK", onPress: () => {} }]);
-      return;
-    }
-
-    // Verificar tamanho total dos dados antes de prosseguir
-    const totalDataSize = JSON.stringify(parsedData).length;
-    const MAX_RECOMMENDED_SIZE = 10 * 1024 * 1024; // 10MB
-    
-    if (totalDataSize > MAX_RECOMMENDED_SIZE) {
-      showAlert(
-        "Aviso",
-        "O ficheiro é muito grande (mais de 10MB). Recomendamos dividir em ficheiros menores ou remover fotos grandes.",
-        [
-          { text: "Cancelar", style: "cancel", onPress: () => {} },
-          {
-            text: "Continuar Mesmo Assim",
-            style: "destructive",
-            onPress: () => {
-              // Garantir que currentUser não é nulo aqui também
-              if (currentUser) {
-                processImport(parsedData, currentUser.uid);
-              }
-            }
-          }
-        ]
-      );
-    } else {
-      await processImport(parsedData, currentUser.uid);
-    }
-  } catch (error) {
-    console.error("Erro detalhado ao importar dados:", error);
-    let errorMessage = "Falha ao importar dados.";
-    if (error instanceof Error) {
-      errorMessage += ` Detalhe: ${error.message}`;
-    }
-    showAlert("Erro na Importação", errorMessage, [{ text: "OK", onPress: () => {} }]);
-  }
-};
 
 // Função auxiliar para processar a importação com tipos adequados
 const processImport = async (parsedData: any[], userId: string) => {
@@ -954,10 +849,6 @@ const processImport = async (parsedData: any[], userId: string) => {
             <MaterialIcons name="cloud-upload" size={24} color="#fff" />
             <Text style={styles.actionButtonText}>Exportar Dados</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={importData}>
-            <MaterialIcons name="file-download" size={24} color="#fff" />
-            <Text style={styles.actionButtonText}>Importar Dados</Text>
-          </TouchableOpacity>
           <TouchableOpacity style={styles.dangerButton} onPress={resetInventory}>
             <MaterialIcons name="delete" size={24} color="#fff" />
             <Text style={styles.actionButtonText}>Redefinir Inventário</Text>
@@ -1097,7 +988,7 @@ const processImport = async (parsedData: any[], userId: string) => {
             Versão 1.0.0
           </Text>
           <Text style={[styles.copyrightText, currentTheme === "dark" ? styles.darkText : styles.lightText]}>
-            © 2025
+           2025 © My Inventory - Todos os direitos reservados
           </Text>
         </View>
       </View>
@@ -1208,7 +1099,7 @@ const styles = StyleSheet.create({
   },
   copyrightText: {
     textAlign: 'center',
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 5,
     color: '#666',
   },

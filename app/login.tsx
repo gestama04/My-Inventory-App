@@ -74,7 +74,7 @@ const handleLogin = async () => {
     }
     
     await login(email, password, rememberMe);
-    router.replace('/home' as any);
+    router.replace('/' as any);
   } catch (error: any) {
     console.log('Erro de login:', error.code, error.message);
     

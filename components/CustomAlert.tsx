@@ -78,8 +78,7 @@ const CustomAlert: React.FC<CustomAlertProps> = ({
                         styles.button,
                         button.style === 'destructive' ? styles.destructiveButton :
                         button.text === "PDF" ? styles.redButton :
-                        button.text === "CSV (Excel)" ? styles.greenButton :
-                        button.text === "JSON (Para importar na app)" ? styles.yellowButton :
+                        button.text === "Excel (CSV)" ? styles.greenButton :
                         isDark ? styles.darkButton : styles.lightButton,
                         index === buttons.length - 1 && styles.lastButton
                       ]}

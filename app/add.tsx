@@ -23,10 +23,12 @@ import * as Linking from 'expo-linking';
 import * as FileSystem from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import useCustomAlert from '../hooks/useCustomAlert';
-import { addInventoryItem } from '../inventory-service';
+import { addInventoryItem, getInventoryItem } from '../inventory-service';
+import * as ImagePicker from 'expo-image-picker';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../firebase-config';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 // Interface para histórico de itens
 interface ItemHistory {
@@ -39,16 +41,19 @@ interface ItemHistory {
 
 const genAI = new GoogleGenerativeAI("AIzaSyDuUDSAfqwznlx9XMw-Xea4f0bU-sfe_4k");
 
-// Função melhorada para classificação de produtos
+// Função para classificação de produtos
 export async function classifyProduct(imageBase64: string): Promise<string> {
   try {
-    // Usando a instância genAI já definida globalmente
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // genAI já definida globalmente
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
    
     // Instruções mais específicas para o modelo
     const prompt = `
     Analise esta imagem de um produto e:
-    1. Identifique o tipo de produto com precisão
+    1. Identifique o tipo de produto com precisão:
+   - Se tiver marca visível (logo ou nome), inclua-a no nome
+   - Se for uma planta, identifique a espécie se possível
+   - Se for um animal, identifique a raça/espécie se possível
     2. Classifique-o na categoria que acha mais apropriada
     3. Determine a quantidade do produto (número de unidades, peso, volume, etc.)
     4. Forneça apenas o nome do produto com precisão e a categoria, sem texto extra
@@ -144,6 +149,9 @@ export default function AddItemScreen() {
   const [capturedImageBase64, setCapturedImageBase64] = useState("");
   const scrollViewRef = useRef<KeyboardAwareScrollView>(null);
   const cameraRef = useRef<CameraView>(null);
+  const [flashMode, setFlashMode] = useState<'off' | 'on'>('off');
+  const [zoom, setZoom] = useState(0);
+  const [zoomLevel, setZoomLevel] = useState(0); // 0 = 1x, 1 = 3x
   
   const { width } = Dimensions.get('window');
   
@@ -151,7 +159,7 @@ export default function AddItemScreen() {
     "Roupas", "Smartphones", "Televisões", "Tablets", "Portáteis", "Alimentos", "Objetos", "Ferramentas",
     "Produtos de Higiene", "Acessórios", "Carros", "Videojogos", "Livros", "Móveis", "Eletrodomésticos",
     "Material Escolar", "Decoração", "Brinquedos", "Calçado", "Jardinagem", "Desporto", "Medicamentos",
-    "Bebidas", "Música", "Cosméticos", "Papelaria", "Animais"
+    "Bebidas", "Música", "Cosméticos", "Papelaria", "Animais", "Plantas", "Flores", "Animais de Estimação"
   ];
 
   // Validação de quantidade
@@ -170,6 +178,28 @@ export default function AddItemScreen() {
       setQuantity('');
     }
   };
+
+const processAppQRCode = (qrData: string) => {
+  try {
+    const data = JSON.parse(qrData);
+    
+    // Verificar se é QR Code da app
+    if (data.app === 'MyInventoryApp' && data.name && data.category) {
+      return {
+        id: data.id || null, // 🆕 ID do produto original
+        name: data.name,
+        category: data.category,
+        quantity: data.quantity || '1',
+        hasPhoto: data.hasPhoto || false, // 🆕 Indicador se tem foto
+        isAppQR: true
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    return null;
+  }
+};
 
   // Função para capturar foto com alta qualidade
   const handleTakePhoto = async () => {
@@ -291,6 +321,130 @@ export default function AddItemScreen() {
     }
   };
   
+// Função para abrir galeria
+const openGallery = async (mode: 'simple' | 'photo' | 'barcode') => {
+  try {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (status !== 'granted') {
+      showAlert("Permissão necessária",
+        "A app necessita de acesso à galeria. Por favor, conceda a permissão nas definições do seu dispositivo.", [
+        { text: "Definições", onPress: () => Linking.openSettings() },
+        { text: "Cancelar", style: "cancel", onPress: () => {} }
+      ]);
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 1,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      const imageUri = result.assets[0].uri;
+      
+      // Se for modo barcode, explicar que precisa usar câmera
+      if (mode === 'barcode') {
+        showAlert(
+          "📱 Use a Câmera para QR Codes",
+          "Para ler QR Codes da app, use a câmera diretamente.\n\nA câmera detecta QR Codes e códigos de barras automaticamente com maior precisão.",
+          [{ text: 'OK', onPress: () => {} }]
+        );
+        return;
+      }
+      
+      // Para outros modos, continuar com o processamento normal
+      const manipResult = await manipulateAsync(
+        imageUri,
+        [{ resize: { width: 1200 } }],
+        { compress: 0.9, format: SaveFormat.JPEG }
+      );
+      
+      const base64 = await FileSystem.readAsStringAsync(manipResult.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      setCapturedImageBase64(base64);
+      
+      if (mode === 'photo') {
+        showAlert("A processar", "A analisar imagem com IA...", [], true);
+        
+        try {
+          const result = await classifyProduct(base64);
+          
+          const nameMatch = result.match(/Nome do produto: (.+)/i);
+          const categoryMatch = result.match(/Categoria: (.+)/i);
+          const quantityMatch = result.match(/Quantidade: (.+)/i);
+          
+          if (nameMatch && categoryMatch) {
+            let productName = nameMatch[1].trim();
+            productName = productName.replace(/\d+\s*(unidades|peças|itens|pares)/i, '').trim();
+            
+            if (quantityMatch && quantityMatch[1]) {
+              const quantityValue = quantityMatch[1].trim();
+              const hasWeightVolumeUnit = /\d+\s*(g|kg|ml|l|litros?|gramas?|quilos?)/i.test(quantityValue);
+              
+              if (hasWeightVolumeUnit) {
+                if (!productName.includes(quantityValue)) {
+                  productName = `${productName} ${quantityValue}`;
+                }
+                setQuantity("1");
+              } else {
+                const numericValue = quantityValue.match(/^(\d+)/);
+                if (numericValue && numericValue[1]) {
+                  setQuantity(numericValue[1]);
+                } else {
+                  setQuantity("1");
+                }
+              }
+            } else {
+              setQuantity("1");
+            }
+            
+            setItem(productName);
+            setCategory(categoryMatch[1]);
+            
+            showAlert("Análise concluída", result, [
+              { text: "OK", onPress: () => {} }
+            ]);
+          } else {
+            showAlert("Resultado", result, [
+              { text: "OK", onPress: () => {} }
+            ]);
+          }
+        } catch (error) {
+          console.error("Erro na análise com IA:", error);
+          showAlert("Erro", "Não foi possível analisar a imagem com IA.", [
+            { text: "OK", onPress: () => {} }
+          ]);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Erro ao abrir galeria:", error);
+    showAlert("Erro", "Não foi possível abrir a galeria.", [
+      { text: "OK", onPress: () => {} }
+    ]);
+  }
+};
+
+// Função para alternar flash
+const zoomIn = () => {
+  const newZoom = Math.min(zoomLevel + 0.25, 1); // Incrementos de 0.25 (equivale a 0.5x)
+  setZoomLevel(newZoom);
+};
+
+const zoomOut = () => {
+  const newZoom = Math.max(zoomLevel - 0.25, 0);
+  setZoomLevel(newZoom);
+};
+
+const toggleFlash = () => {
+  setFlashMode(flashMode === 'off' ? 'on' : 'off');
+};
+
 
   // Carregar categorias usadas anteriormente
   useEffect(() => {
@@ -322,34 +476,75 @@ export default function AddItemScreen() {
     loadCategories();
   }, []);
 
-  // Função para lidar com leitura de código de barras/QR
-  const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) => {
-    setScanned(true);
-    setIsScanning(false);
-    setScanMode(null);
-
-    let itemName = data;
+const loadImageFromFirestore = async (itemId: string) => {
+  try {
+    if (!auth.currentUser) return;
     
-    // Verifica se é um URL e extrai o nome do domínio
-    try {
-            const url = new URL(data);
-      const domain = url.hostname.replace('www.', '').split('.')[0];
-      itemName = domain.charAt(0).toUpperCase() + domain.slice(1);
-    } catch (e) {
-      // Não é um URL, mantém o valor original
+    const itemData = await getInventoryItem(itemId);
+    
+    if (itemData && (itemData.photo || itemData.photoUrl)) {
+      // Se tem foto em base64, usar diretamente
+      if (itemData.photo) {
+        setCapturedImageBase64(itemData.photo);
+      }
+      // Se tem apenas URL, você pode implementar download se necessário
+      // Por agora, vamos usar apenas a base64
+      
+      console.log('✅ Imagem carregada do produto original');
     }
+  } catch (error) {
+    console.error('❌ Erro ao carregar imagem:', error);
+  }
+};
 
-    setItem(itemName);
+  // Função para lidar com leitura de código de barras/QR
+const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) => {
+  setScanned(true);
+  setIsScanning(false);
+  setScanMode(null);
+
+  console.log('Código detectado:', { type, data });
+
+  const appQRData = processAppQRCode(data);
+  
+  if (appQRData) {
+    // Preencher dados básicos
+    setItem(appQRData.name);
+    setCategory(appQRData.category);
+    setQuantity(appQRData.quantity);
+    
+    // 🆕 Se tem foto e ID, carregar a imagem do Firestore
+    if (appQRData.hasPhoto && appQRData.id) {
+      loadImageFromFirestore(appQRData.id);
+    }
     
     showAlert(
-      `Código Lido`,
-      `Tipo: ${type}\nDados: ${data}`,
-      [
-        { text: 'OK', onPress: () => setScanned(false) }
-      ]
+      '✅ QR Code da App Detectado',
+      `Produto: ${appQRData.name}\nCategoria: ${appQRData.category}\nQuantidade: ${appQRData.quantity}${appQRData.hasPhoto ? '\n📷 A carregar imagem...' : ''}`,
+      [{ text: 'OK', onPress: () => setScanned(false) }]
     );
-  };
+    return;
+  }
 
+  // Resto do código igual...
+  let itemName = data;
+  
+  try {
+    const url = new URL(data);
+    const domain = url.hostname.replace('www.', '').split('.')[0];
+    itemName = domain.charAt(0).toUpperCase() + domain.slice(1);
+  } catch (e) {
+    // Não é URL
+  }
+
+  setItem(itemName);
+  
+  showAlert(
+    `📱 Código Lido`,
+    `Tipo: ${type}\nDados: ${data}`,
+    [{ text: 'OK', onPress: () => setScanned(false) }]
+  );
+};
   // Função para adicionar item ao inventário
   const handleAddItem = async () => {
     // Verificar se o Utilizador está autenticado
@@ -436,7 +631,7 @@ export default function AddItemScreen() {
 
       while (attempts < maxAttempts) {
         try {
-          const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+          const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
           
           // Prompt melhorado com exemplos e regras mais explícitas
           const prompt = `
@@ -673,20 +868,16 @@ export default function AddItemScreen() {
     onPress={() => openCamera('barcode')}
   >
     <View style={styles.iconContainer}>
-  <Text style={styles.buttonText}>Ler  </Text>
-  <View style={styles.iconGroup}>
-    <Ionicons name="barcode-outline" size={22} color="white" />
-    <Text style={styles.iconSeparator}>/</Text>
-    <Ionicons name="qr-code-outline" size={19} color="white" />
-  </View>
-</View>
-
+      <Text style={styles.buttonText}>Ler  </Text>
+      <View style={styles.iconGroup}>
+        <Ionicons name="barcode-outline" size={22} color="white" />
+        <Text style={styles.iconSeparator}>/</Text>
+        <Ionicons name="qr-code-outline" size={19} color="white" />
+      </View>
+    </View>
   </TouchableOpacity>
 </View>
 
-
-
-          
           {/* Campos de entrada */}
           <View style={styles.formContainer}>
             <View style={styles.inputGroup}>
@@ -831,58 +1022,117 @@ export default function AddItemScreen() {
       
       {/* Câmera para leitura de código ou captura de foto */}
       {isScanning && (
-        <View style={styles.scannerContainer}>
-          <CameraView
-            style={styles.camera}
-            onBarcodeScanned={scanMode === 'barcode' && !scanned ? handleBarCodeScanned : undefined}
-            ref={cameraRef}
-          >
-            {scanMode === 'barcode' ? (
-              <View style={styles.layerContainer}>
-                <View style={styles.layerTop} />
-                <View style={styles.layerCenter}>
-                  <View style={styles.layerLeft} />
-                  <View style={styles.focused} />
-                  <View style={styles.layerRight} />
-                </View>
-                <View style={styles.layerBottom} />
-              </View>
-            ) : (
-              <View style={styles.photoGuideContainer}>
-                <View style={styles.photoGuide} />
-              </View>
-            )}
-            
-            <View style={styles.cameraControls}>
-              <TouchableOpacity
-                style={styles.captureButton}
-                onPress={handleTakePhoto}
-                disabled={scanned}
-              >
-                <View style={styles.captureButtonInner} />
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => {
-                  setIsScanning(false);
-                  setScanMode(null);
-                }}
-              >
-                <Ionicons name="close" size={28} color="white" />
-              </TouchableOpacity>
-            </View>
-            
-            <View style={styles.cameraInstructions}>
-              <Text style={styles.cameraInstructionsText}>
-                {scanMode === 'barcode' 
-                  ? 'Posicione o código de barras ou QR code na área destacada' 
-                  : 'Posicione o produto no centro do ecrã'}
-              </Text>
-            </View>
-          </CameraView>
+  <View style={styles.scannerContainer}>
+    <CameraView
+  style={styles.camera}
+  onBarcodeScanned={scanMode === 'barcode' && !scanned ? handleBarCodeScanned : undefined}
+  ref={cameraRef}
+  zoom={zoomLevel}
+  enableTorch={flashMode === 'on'} // MUDAR de flash para enableTorch
+>
+      {scanMode === 'barcode' ? (
+        <View style={styles.layerContainer}>
+          <View style={styles.layerTop} />
+          <View style={styles.layerCenter}>
+            <View style={styles.layerLeft} />
+            <View style={styles.focused} />
+            <View style={styles.layerRight} />
+          </View>
+          <View style={styles.layerBottom} />
+        </View>
+      ) : (
+        <View style={styles.photoGuideContainer}>
+          <View style={styles.photoGuide} />
         </View>
       )}
+      
+      {/* Controles superiores da câmera */}
+      <View style={styles.cameraTopControls}>
+  <TouchableOpacity
+    style={styles.flashButton}
+    onPress={toggleFlash}
+  >
+    <Ionicons 
+      name={flashMode === 'on' ? "flash" : "flash-off"} 
+      size={24} 
+      color={flashMode === 'on' ? "#FFD700" : "white"} 
+    />
+  </TouchableOpacity>
+  
+  {/* Controles de zoom */}
+  <View style={styles.zoomControls}>
+    <TouchableOpacity 
+      style={[styles.zoomButton, zoomLevel <= 0 && styles.zoomButtonDisabled]} 
+      onPress={zoomOut}
+      disabled={zoomLevel <= 0}
+    >
+      <Ionicons name="remove" size={20} color={zoomLevel <= 0 ? "#666" : "white"} />
+    </TouchableOpacity>
+    
+    <View style={styles.zoomIndicator}>
+      <Text style={styles.zoomText}>
+        {(1 + zoomLevel * 2).toFixed(1)}x
+      </Text>
+    </View>
+    
+    <TouchableOpacity 
+      style={[styles.zoomButton, zoomLevel >= 1 && styles.zoomButtonDisabled]} 
+      onPress={zoomIn}
+      disabled={zoomLevel >= 1}
+    >
+      <Ionicons name="add" size={20} color={zoomLevel >= 1 ? "#666" : "white"} />
+    </TouchableOpacity>
+  </View>
+</View>
+      
+      <View style={styles.cameraControls}>
+  {/* Botão de galeria à esquerda */}
+ <TouchableOpacity
+    style={styles.galleryButtonCamera}
+    onPress={() => {
+      setIsScanning(false);
+      setScanMode(null);
+      setZoomLevel(0);
+      setFlashMode('off');
+      openGallery(scanMode || 'simple');
+    }}
+  >
+    <Ionicons name="images" size={24} color="white" />
+  </TouchableOpacity>
+
+  {/* Botão de captura no centro */}
+  <TouchableOpacity
+    style={styles.captureButton}
+    onPress={handleTakePhoto}
+    disabled={scanned}
+  >
+    <View style={styles.captureButtonInner} />
+  </TouchableOpacity>
+  
+  {/* Botão de fechar à direita */}
+  <TouchableOpacity
+    style={styles.closeButton}
+    onPress={() => {
+      setIsScanning(false);
+      setScanMode(null);
+      setZoomLevel(0);
+      setFlashMode('off');
+    }}
+  >
+    <Ionicons name="close" size={28} color="white" />
+  </TouchableOpacity>
+</View>
+      
+      <View style={styles.cameraInstructions}>
+  <Text style={styles.cameraInstructionsText}>
+    {scanMode === 'barcode' 
+      ? 'Posicione o código de barras ou QR code na área destacada' 
+      : 'Posicione o produto no centro do ecrã'}
+  </Text>
+</View>
+    </CameraView>
+  </View>
+)}
       
       <AlertComponent />
     </View>
@@ -960,6 +1210,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     opacity: 0.7,
   },
+  galleryButtonCamera: {
+  width: 44,
+  height: 44,
+  borderRadius: 22,
+  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  justifyContent: 'center',
+  alignItems: 'center',
+},
   
   // Botões de câmera
   cameraButtonsContainer: {
@@ -991,7 +1249,60 @@ const styles = StyleSheet.create({
   buttonIcon: {
     marginRight: 8,
   },
-  
+buttonTextSmall: {
+  color: 'white',
+  fontWeight: '600',
+  fontSize: 13,
+},
+cameraTopControls: {
+  position: 'absolute',
+  top: 50,
+  left: 0,
+  right: 0,
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingHorizontal: 20,
+},
+flashButton: {
+  width: 44,
+  height: 44,
+  borderRadius: 22,
+  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  justifyContent: 'center',
+  alignItems: 'center',
+},
+zoomControls: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  borderRadius: 20,
+  paddingHorizontal: 8,
+  paddingVertical: 4,
+},
+zoomButton: {
+  width: 32,
+  height: 32,
+  borderRadius: 16,
+  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginHorizontal: 4,
+},
+zoomButtonDisabled: {
+  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+},
+zoomIndicator: {
+  paddingHorizontal: 12,
+  paddingVertical: 4,
+},
+zoomText: {
+  color: 'white',
+  fontSize: 14,
+  fontWeight: 'bold',
+  minWidth: 35,
+  textAlign: 'center',
+},
   // Formulário
   formContainer: {
     marginBottom: 24,
@@ -1203,15 +1514,15 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: 'transparent',
   },
-  cameraControls: {
-    position: 'absolute',
-    bottom: 30,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+cameraControls: {
+  position: 'absolute',
+  bottom: 30,
+  left: 20,
+  right: 20,
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+},
   captureButton: {
     width: 70,
     height: 70,
@@ -1226,16 +1537,14 @@ const styles = StyleSheet.create({
     borderRadius: 27,
     backgroundColor: 'white',
   },
-  closeButton: {
-    position: 'absolute',
-    right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+closeButton: {
+  width: 44,
+  height: 44,
+  borderRadius: 22,
+  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  justifyContent: 'center',
+  alignItems: 'center',
+},
   cameraInstructions: {
     position: 'absolute',
     bottom: 120,
