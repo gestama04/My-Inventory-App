@@ -45,7 +45,7 @@ interface Item {
   updatedAt?: any; // Timestamp do Firestore
 }
 
-const genAI = new GoogleGenerativeAI("AIzaSyDuUDSAfqwznlx9XMw-Xea4f0bU-sfe_4k");
+const genAI = new GoogleGenerativeAI("*colocar a sua api key*");
 
 // Função para gerar descrição apenas com texto (fallback)
 const generateDescription = async (name: string, category: string): Promise<string> => {
