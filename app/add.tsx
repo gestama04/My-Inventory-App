@@ -20,13 +20,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { Camera, useCameraPermissions, CameraView } from 'expo-camera';
 import { useNavigation } from '@react-navigation/native';
 import * as Linking from 'expo-linking';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import useCustomAlert from '../hooks/useCustomAlert';
 import { addInventoryItem, getInventoryItem } from '../inventory-service';
 import * as ImagePicker from 'expo-image-picker';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db, auth } from '../firebase-config';
+import { supabase } from '../supabase-config';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import * as ImageManipulator from 'expo-image-manipulator';
 
@@ -39,13 +38,13 @@ interface ItemHistory {
   action: 'add' | 'edit' | 'remove';
 }
 
-const genAI = new GoogleGenerativeAI("*colocar a sua api key*");
+const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY as string);
 
 // Função para classificação de produtos
 export async function classifyProduct(imageBase64: string): Promise<string> {
   try {
     // genAI já definida globalmente
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
    
     // Instruções mais específicas para o modelo
     const prompt = `
@@ -235,7 +234,7 @@ const processAppQRCode = (qrData: string) => {
       
       // Converter para base64
       const base64 = await FileSystem.readAsStringAsync(manipResult.uri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
       
       // Atualizar estado
@@ -363,7 +362,7 @@ const openGallery = async (mode: 'simple' | 'photo' | 'barcode') => {
       );
       
       const base64 = await FileSystem.readAsStringAsync(manipResult.uri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
       
       setCapturedImageBase64(base64);
@@ -450,16 +449,19 @@ const toggleFlash = () => {
   useEffect(() => {
     const loadCategories = async () => {
       try {
-        const userId = auth.currentUser?.uid;
-        if (!userId) return;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
   
-        // Buscar categorias do Firebase
-        const q = query(collection(db, 'inventory'), where('userId', '==', userId));
-        const snapshot = await getDocs(q);
+        // Buscar categorias do Supabase
+        const { data, error } = await supabase
+          .from('inventory_items')
+          .select('category')
+          .eq('user_id', user.id);
+        
+        if (error) throw error;
         
         const categoriesFromItems: string[] = [];
-        snapshot.forEach((doc) => {
-          const item = doc.data();
+        (data || []).forEach((item: any) => {
           if (item.category) {
             categoriesFromItems.push(item.category);
           }
@@ -478,7 +480,8 @@ const toggleFlash = () => {
 
 const loadImageFromFirestore = async (itemId: string) => {
   try {
-    if (!auth.currentUser) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     
     const itemData = await getInventoryItem(itemId);
     
@@ -548,7 +551,8 @@ const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) =>
   // Função para adicionar item ao inventário
   const handleAddItem = async () => {
     // Verificar se o Utilizador está autenticado
-    if (!auth.currentUser) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
       showAlert("Erro", "Você precisa de estar autenticado para adicionar produtos.", [
         { text: "OK", onPress: () => {} }
       ]);
@@ -631,7 +635,7 @@ const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) =>
 
       while (attempts < maxAttempts) {
         try {
-          const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+          const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
           
           // Prompt melhorado com exemplos e regras mais explícitas
           const prompt = `

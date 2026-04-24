@@ -2,15 +2,15 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { auth, db } from '../firebase-config';
-import { collection, query, where, getDocs, doc, updateDoc, addDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '../supabase-config';
 import { getUserSettings } from '../inventory-service';
-import { onAuthStateChanged } from 'firebase/auth';
 import * as TaskManager from 'expo-task-manager';
 import React from 'react';
+import Constants from 'expo-constants';
+
+
 const BACKGROUND_TASK_NAME = 'background-stock-check';
 
-// Updated interface for inventory items to include the lowStockThreshold
 interface InventoryItem {
   id?: string;
   name: string;
@@ -23,12 +23,11 @@ interface InventoryItem {
 
 interface NotificationSettings {
   enabled: boolean;
-  interval: number; // em minutos
+  interval: number;
   lowStockEnabled: boolean;
   outOfStockEnabled: boolean;
 }
 
-// Configuração de como as notificações devem aparecer
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: true,
@@ -38,7 +37,6 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Definir a tarefa em background
 TaskManager.defineTask(BACKGROUND_TASK_NAME, async () => {
   try {
     console.log('[BackgroundTask] Executando verificação de stock em background');
@@ -56,27 +54,25 @@ export class NotificationService {
   private static lastNotificationTime = 0;
   private static isBackgroundTaskRegistered = false;
   
-  // Inicializar o serviço de notificações e configurar listener de autenticação
   static async initialize() {
-    console.log('[NotificationService] Inicializando serviço de notificações...');
-    
-    // Limpar dados antigos para evitar erro de banco de dados cheio
-    await this.cleanupStorage();
-    
-    // Registrar para notificações push
+  // ADICIONAR ESTA VERIFICAÇÃO NO TOPO
+  if (Constants.appOwnership === 'expo') {
+    console.log('[NotificationService] Modo Expo Go detetado. Ignorando inicialização de Push.');
+    return; 
+  }
+
+  console.log('[NotificationService] Inicializando serviço de notificações...');
+  await this.cleanupStorage();
     await this.registerForPushNotificationsAsync();
     
-    // Configurar listener de autenticação (apenas uma vez)
     if (!this.authListenerInitialized) {
       this.setupAuthListener();
       this.authListenerInitialized = true;
     }
 
-    // Registrar tarefa em background
     await this.registerBackgroundTask();
   }
 
-  // Novo método para obter configurações de notificação
   static async getNotificationSettings(): Promise<NotificationSettings> {
     try {
       const settings = await AsyncStorage.getItem('notificationSettings');
@@ -89,10 +85,9 @@ export class NotificationService {
       console.error('[NotificationService] Erro ao carregar configurações:', error);
     }
     
-    // Configurações padrão
     const defaultSettings = {
       enabled: true,
-      interval: 60, // 1 hora por padrão
+      interval: 60,
       lowStockEnabled: true,
       outOfStockEnabled: true,
     };
@@ -101,54 +96,49 @@ export class NotificationService {
     return defaultSettings;
   }
 
-  // Salvar configurações de notificação
-static async saveNotificationSettings(settings: NotificationSettings) {
-  try {
-    // Salvar localmente
-    await AsyncStorage.setItem('notificationSettings', JSON.stringify(settings));
-    console.log('[NotificationService] Configurações salvas localmente:', settings);
-    
-    // 🆕 SALVAR NO FIRESTORE PARA O FIREBASE FUNCTIONS
-    const userId = auth.currentUser?.uid;
-    if (userId) {
-      await setDoc(doc(db, 'userNotificationSettings', userId), {
-        enabled: settings.enabled,
-        interval: settings.interval,
-        lowStockEnabled: settings.lowStockEnabled,
-        outOfStockEnabled: settings.outOfStockEnabled,
-        updatedAt: new Date()
-      });
-      console.log('[NotificationService] Configurações salvas no Firestore para Firebase Functions');
+  static async saveNotificationSettings(settings: NotificationSettings) {
+    try {
+      await AsyncStorage.setItem('notificationSettings', JSON.stringify(settings));
+      console.log('[NotificationService] Configurações salvas localmente:', settings);
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase
+          .from('user_notification_settings')
+          .upsert({
+            user_id: user.id,
+            enabled: settings.enabled,
+            interval_minutes: settings.interval,
+            low_stock_enabled: settings.lowStockEnabled,
+            out_of_stock_enabled: settings.outOfStockEnabled,
+            updated_at: new Date().toISOString(),
+          });
+        console.log('[NotificationService] Configurações salvas no Supabase');
+      }
+      
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (currentUser) {
+        await this.setupPeriodicStockCheck();
+      }
+    } catch (error) {
+      console.error('[NotificationService] Erro ao salvar configurações:', error);
+      throw error;
     }
-    
-    // Reconfigurar verificação periódica com novo intervalo
-    if (auth.currentUser) {
-      await this.setupPeriodicStockCheck();
-    }
-  } catch (error) {
-    console.error('[NotificationService] Erro ao salvar configurações:', error);
-    throw error;
   }
-}
 
-  // Limpar AsyncStorage para evitar erro SQLITE_FULL
   static async cleanupStorage() {
     try {
       console.log('[NotificationService] Iniciando limpeza do AsyncStorage...');
       
-      // Obter todas as chaves
       const allKeys = await AsyncStorage.getAllKeys();
       console.log(`[NotificationService] Total de chaves no storage: ${allKeys.length}`);
       
-      // Filtrar chaves antigas ou temporárias para remoção
       const keysToRemove = allKeys.filter(key => 
         key.startsWith('temp_') || 
         key.startsWith('cache_') ||
         key.includes('old_') ||
         key.includes('backup_') ||
-        key.includes('expired_') ||
-        // Limpar histórico de pesquisa antigo (manter apenas os 5 mais recentes)
-        (key === 'searchHistory' && Math.random() > 0.7)
+        key.includes('expired_')
       );
       
       if (keysToRemove.length > 0) {
@@ -156,12 +146,10 @@ static async saveNotificationSettings(settings: NotificationSettings) {
         console.log(`[NotificationService] Removidas ${keysToRemove.length} chaves antigas`);
       }
 
-      // Verificar se ainda há muitas chaves e fazer limpeza mais agressiva se necessário
       const remainingKeys = await AsyncStorage.getAllKeys();
       if (remainingKeys.length > 100) {
         console.log('[NotificationService] Muitas chaves detectadas, fazendo limpeza agressiva...');
         
-        // Manter apenas as chaves essenciais
         const essentialKeys = [
           'userSettings', 
           'notificationSettings', 
@@ -175,11 +163,10 @@ static async saveNotificationSettings(settings: NotificationSettings) {
           !essentialKeys.some(essential => key.includes(essential))
         );
         
-        // Remover 70% das chaves não essenciais
         const keysToRemoveAggressively = nonEssentialKeys.slice(0, Math.floor(nonEssentialKeys.length * 0.7));
         if (keysToRemoveAggressively.length > 0) {
           await AsyncStorage.multiRemove(keysToRemoveAggressively);
-          console.log(`[NotificationService] Removidas ${keysToRemoveAggressively.length} chaves adicionais na limpeza agressiva`);
+          console.log(`[NotificationService] Removidas ${keysToRemoveAggressively.length} chaves adicionais`);
         }
       }
       
@@ -189,7 +176,6 @@ static async saveNotificationSettings(settings: NotificationSettings) {
     } catch (error) {
       console.error('[NotificationService] Erro durante limpeza do storage:', error);
       
-      // Em caso de erro crítico, tentar limpar completamente
       try {
         console.log('[NotificationService] Tentando limpeza completa devido a erro...');
         await AsyncStorage.clear();
@@ -200,9 +186,14 @@ static async saveNotificationSettings(settings: NotificationSettings) {
     }
   }
 
-  // Registrar para notificações push
   static async registerForPushNotificationsAsync() {
     let token;
+
+    // ADICIONAR ESTA PROTEÇÃO: Se estivermos no Expo Go, abortar imediatamente
+    if (Constants.appOwnership === 'expo') {
+      console.log('[NotificationService] A correr no Expo Go - Notificações Push desativadas para evitar erros.');
+      return null;
+    }
 
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
@@ -214,7 +205,6 @@ static async saveNotificationSettings(settings: NotificationSettings) {
         description: 'Notificações sobre níveis de stock do inventário',
       });
 
-      // Canal específico para stock baixo
       await Notifications.setNotificationChannelAsync('low-stock', {
         name: 'Stock Baixo',
         importance: Notifications.AndroidImportance.HIGH,
@@ -224,7 +214,6 @@ static async saveNotificationSettings(settings: NotificationSettings) {
         description: 'Alertas quando produtos estão com stock baixo',
       });
 
-      // Canal específico para falta de stock
       await Notifications.setNotificationChannelAsync('out-of-stock', {
         name: 'Sem Stock',
         importance: Notifications.AndroidImportance.MAX,
@@ -251,7 +240,7 @@ static async saveNotificationSettings(settings: NotificationSettings) {
       }
       
       try {
-        const projectId = '3abf848f-326e-4719-a3c6-9c4c60605aa7'; // Seu project ID do EAS
+        const projectId = '3abf848f-326e-4719-a3c6-9c4c60605aa7';
         token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
         console.log('[NotificationService] Token de push obtido com sucesso');
       } catch (error) {
@@ -264,26 +253,25 @@ static async saveNotificationSettings(settings: NotificationSettings) {
     return token;
   }
 
-static async forceStockCheck() {
-  console.log('[NotificationService] Forçando verificação de stock (ignorando debounce)...');
-  const originalTime = this.lastNotificationTime;
-  this.lastNotificationTime = 0; // Reset temporário do debounce
-  
-  try {
-    await this.checkStockLevels();
-  } finally {
-    // Se não houve nova notificação, restaurar o tempo original
-    if (this.lastNotificationTime === 0) {
-      this.lastNotificationTime = originalTime;
+  static async forceStockCheck() {
+    console.log('[NotificationService] Forçando verificação de stock (ignorando debounce)...');
+    const originalTime = this.lastNotificationTime;
+    this.lastNotificationTime = 0;
+    
+    try {
+      await this.checkStockLevels();
+    } finally {
+      if (this.lastNotificationTime === 0) {
+        this.lastNotificationTime = originalTime;
+      }
     }
   }
-}
-  // Configurar listener de autenticação
+
   static setupAuthListener() {
     console.log('[NotificationService] Configurando listener de autenticação...');
     
-    onAuthStateChanged(auth, async (user) => {
-      if (user) {
+    supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
         console.log('[NotificationService] Usuário autenticado, iniciando monitoramento de stock');
         await this.setupPeriodicStockCheck();
       } else {
@@ -293,7 +281,6 @@ static async forceStockCheck() {
     });
   }
 
-  // Registrar tarefa em background
   static async registerBackgroundTask() {
     try {
       if (this.isBackgroundTaskRegistered) {
@@ -304,7 +291,6 @@ static async forceStockCheck() {
       const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_TASK_NAME);
       if (!isRegistered) {
         console.log('[NotificationService] Registando tarefa em background...');
-        // A tarefa já foi definida no início do arquivo
         this.isBackgroundTaskRegistered = true;
         console.log('[NotificationService] Tarefa em background registada com sucesso');
       } else {
@@ -316,27 +302,36 @@ static async forceStockCheck() {
     }
   }
 
-  // Configurar verificação periódica de stock
-static async setupPeriodicStockCheck() {
-  try {
-    // 🆕 DESABILITAR VERIFICAÇÃO LOCAL - USAR SÓ FIREBASE FUNCTIONS
-    console.log('[NotificationService] Verificação de stock delegada para Firebase Functions');
-    
-    // Limpar interval anterior se existir
-    if (this.stockCheckInterval) {
-      clearInterval(this.stockCheckInterval);
-      this.stockCheckInterval = null;
-    }
-    
-    // Não criar novo interval - Firebase Functions vai cuidar disso
-    console.log('[NotificationService] Firebase Functions gerenciará as notificações de stock');
-    
-  } catch (error) {
-    console.error('[NotificationService] Erro ao configurar verificação periódica:', error);
-  }
-}
+  static async setupPeriodicStockCheck() {
+    try {
+      console.log('[NotificationService] Configurando verificação periódica de stock...');
+      
+      if (this.stockCheckInterval) {
+        clearInterval(this.stockCheckInterval);
+        this.stockCheckInterval = null;
+      }
+      
+      const settings = await this.getNotificationSettings();
+      if (!settings.enabled) {
+        console.log('[NotificationService] Notificações desabilitadas');
+        return;
+      }
 
-  // Parar verificação periódica
+      const intervalMs = settings.interval * 60 * 1000;
+      console.log(`[NotificationService] Intervalo configurado: ${settings.interval} minutos`);
+
+      await this.checkStockLevels();
+      
+      this.stockCheckInterval = setInterval(async () => {
+        await this.checkStockLevels();
+      }, intervalMs);
+      
+      console.log('[NotificationService] Verificação periódica configurada');
+    } catch (error) {
+      console.error('[NotificationService] Erro ao configurar verificação periódica:', error);
+    }
+  }
+
   static stopPeriodicStockCheck() {
     if (this.stockCheckInterval) {
       clearInterval(this.stockCheckInterval);
@@ -345,316 +340,185 @@ static async setupPeriodicStockCheck() {
     }
   }
 
+  static async checkStockLevels() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('[NotificationService] Usuário não autenticado para verificação de stock');
+        return;
+      }
 
-  
-  // Verificar níveis de stock
-static async checkStockLevels() {
-  try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      console.log('[NotificationService] Usuário não autenticado para verificação de stock');
-      return;
-    }
+      const settings = await this.getNotificationSettings();
+      if (!settings.enabled) {
+        console.log('[NotificationService] Notificações desabilitadas, cancelando verificação');
+        return;
+      }
 
-    // Obter configurações primeiro para calcular debounce dinâmico
-    const settings = await this.getNotificationSettings();
-    if (!settings.enabled) {
-      console.log('[NotificationService] Notificações desabilitadas, cancelando verificação');
-      return;
-    }
-
-    // Implementar debounce dinâmico baseado no intervalo configurado
-    const now = Date.now();
-    // Usar 50% do intervalo configurado como debounce mínimo, mas nunca menos que 30 segundos
-    const configuredIntervalMs = settings.interval * 60 * 1000;
-    const minInterval = Math.max(configuredIntervalMs * 0.5, 30000); // Mínimo 30 segundos
-    
-    if (now - this.lastNotificationTime < minInterval) {
-      console.log(`[NotificationService] Verificação em debounce - muito recente (${Math.round((now - this.lastNotificationTime) / 1000)}s < ${Math.round(minInterval / 1000)}s), ignorando...`);
-      return;
-    }
-
-    console.log('[NotificationService] Iniciando verificação de níveis de stock...');
-
-    // Obter configurações do usuário para threshold global
-    const userSettings = await getUserSettings();
-    const globalThreshold = parseInt(userSettings?.globalLowStockThreshold || '5');
-    console.log(`[NotificationService] Threshold global configurado: ${globalThreshold}`);
-
-    // Buscar todos os itens do inventário do usuário
-    const inventoryRef = collection(db, 'inventory');
-    const q = query(inventoryRef, where('userId', '==', userId));
-    const snapshot = await getDocs(q);
-
-    const lowStockItems: InventoryItem[] = [];
-    const outOfStockItems: InventoryItem[] = [];
-
-    // Processar cada item do inventário
-    snapshot.forEach((doc) => {
-      const item = { id: doc.id, ...doc.data() } as InventoryItem;
-      const quantity = parseInt(item.quantity.toString()) || 0;
+      const now = Date.now();
+      const configuredIntervalMs = settings.interval * 60 * 1000;
+      const minInterval = Math.max(configuredIntervalMs * 0.5, 30000);
       
-      if (quantity === 0) {
-        outOfStockItems.push(item);
-      } else {
-        // Verificar threshold personalizado do item ou usar o global
-        let threshold = globalThreshold;
-        if (item.lowStockThreshold) {
-          const customThreshold = parseInt(item.lowStockThreshold);
-          if (!isNaN(customThreshold) && customThreshold > 0) {
-            threshold = customThreshold;
+      if (now - this.lastNotificationTime < minInterval) {
+        console.log(`[NotificationService] Verificação em debounce, ignorando...`);
+        return;
+      }
+
+      console.log('[NotificationService] Iniciando verificação de níveis de stock...');
+
+      const userSettings = await getUserSettings();
+      const globalThreshold = parseInt(userSettings?.globalLowStockThreshold || '5');
+      console.log(`[NotificationService] Threshold global configurado: ${globalThreshold}`);
+
+      const { data: items, error } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('[NotificationService] Erro ao obter itens:', error);
+        return;
+      }
+
+      const lowStockItems: InventoryItem[] = [];
+      const outOfStockItems: InventoryItem[] = [];
+
+      (items || []).forEach((item) => {
+        const quantity = parseInt(item.quantity?.toString() || '0');
+        
+        if (quantity === 0) {
+          outOfStockItems.push({
+            id: item.id,
+            name: item.name,
+            quantity: item.quantity,
+            category: item.category,
+            lowStockThreshold: item.low_stock_threshold?.toString(),
+            userId: item.user_id,
+          });
+        } else {
+          let threshold = globalThreshold;
+          if (item.low_stock_threshold) {
+            const customThreshold = parseInt(item.low_stock_threshold);
+            if (!isNaN(customThreshold) && customThreshold > 0) {
+              threshold = customThreshold;
+            }
+          }
+          
+          if (quantity <= threshold) {
+            lowStockItems.push({
+              id: item.id,
+              name: item.name,
+              quantity: item.quantity,
+              category: item.category,
+              lowStockThreshold: item.low_stock_threshold?.toString(),
+              userId: item.user_id,
+            });
           }
         }
-        
-        if (quantity <= threshold) {
-          lowStockItems.push(item);
-        }
+      });
+
+      console.log(`[NotificationService] Verificação concluída - Stock baixo: ${lowStockItems.length}, Sem stock: ${outOfStockItems.length}`);
+
+      if ((settings.lowStockEnabled && lowStockItems.length > 0) || 
+          (settings.outOfStockEnabled && outOfStockItems.length > 0)) {
+        await this.generateStockNotifications(lowStockItems, outOfStockItems, settings);
+        this.lastNotificationTime = now;
       }
-    });
 
-    console.log(`[NotificationService] Verificação concluída - Stock baixo: ${lowStockItems.length}, Sem stock: ${outOfStockItems.length}`);
-
-    // Gerar notificações se necessário
-    if ((settings.lowStockEnabled && lowStockItems.length > 0) || 
-        (settings.outOfStockEnabled && outOfStockItems.length > 0)) {
-      await this.generateStockNotifications(lowStockItems, outOfStockItems, settings);
-      this.lastNotificationTime = now;
+    } catch (error) {
+      console.error('[NotificationService] Erro ao verificar níveis de stock:', error);
     }
-
-  } catch (error) {
-    console.error('[NotificationService] Erro ao verificar níveis de stock:', error);
   }
-}
 
-  // Gerar notificações de stock
-static async generateStockNotifications(
-  lowStockItems: InventoryItem[], 
-  outOfStockItems: InventoryItem[],
-  settings: NotificationSettings
-) {
-  try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      console.log('[NotificationService] Usuário não autenticado para gerar notificações');
-      return;
+  static async generateStockNotifications(
+    lowStockItems: InventoryItem[], 
+    outOfStockItems: InventoryItem[],
+    settings: NotificationSettings
+  ) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('[NotificationService] Usuário não autenticado para gerar notificações');
+        return;
+      }
+
+      console.log('[NotificationService] Gerando notificações de stock...');
+
+      if (settings.lowStockEnabled && lowStockItems.length > 0) {
+        const title = lowStockItems.length === 1 
+          ? '⚠️ Stock Baixo' 
+          : `⚠️ ${lowStockItems.length} Produtos com Stock Baixo`;
+        
+        const maxItems = 3;
+        const itemNames = lowStockItems.slice(0, maxItems).map(i => i.name).join(', ');
+        const extra = lowStockItems.length > maxItems ? ` e mais ${lowStockItems.length - maxItems}` : '';
+        const body = lowStockItems.length === 1
+          ? `${lowStockItems[0].name} está com stock baixo (${lowStockItems[0].quantity} restantes)`
+          : `${itemNames}${extra} estão com stock baixo`;
+
+        await this.sendLocalNotification(title, body, 'low-stock');
+      }
+
+      if (settings.outOfStockEnabled && outOfStockItems.length > 0) {
+        const title = outOfStockItems.length === 1 
+          ? '🚨 Produto Esgotado' 
+          : `🚨 ${outOfStockItems.length} Produtos Esgotados`;
+        
+        const maxItems = 3;
+        const itemNames = outOfStockItems.slice(0, maxItems).map(i => i.name).join(', ');
+        const extra = outOfStockItems.length > maxItems ? ` e mais ${outOfStockItems.length - maxItems}` : '';
+        const body = outOfStockItems.length === 1
+          ? `${outOfStockItems[0].name} está sem stock`
+          : `${itemNames}${extra} estão sem stock`;
+
+        await this.sendLocalNotification(title, body, 'out-of-stock');
+      }
+
+    } catch (error) {
+      console.error('[NotificationService] Erro ao gerar notificações:', error);
     }
+  }
 
-    console.log('[NotificationService] Gerando notificações de stock...');
-    console.log(`[NotificationService] Items com stock baixo: ${lowStockItems.length}`);
-    console.log(`[NotificationService] Items sem stock: ${outOfStockItems.length}`);
-    console.log(`[NotificationService] Configurações - lowStock: ${settings.lowStockEnabled}, outOfStock: ${settings.outOfStockEnabled}`);
-
-    // Verificar se já existem notificações não lidas similares para evitar spam
-    const notificationsRef = collection(db, 'notifications');
-    const existingQuery = query(
-      notificationsRef,
-      where('userId', '==', userId),
-      where('read', '==', false)
-    );
-    const existingSnapshot = await getDocs(existingQuery);
-    
-    const hasUnreadLowStockNotification = existingSnapshot.docs.some(doc => {
-      const title = doc.data().title;
-      console.log(`[NotificationService] Verificando notificação existente: "${title}"`);
-      return title.includes('Stock Baixo');
-    });
-    
-    const hasUnreadOutOfStockNotification = existingSnapshot.docs.some(doc => {
-      const title = doc.data().title;
-      return title.includes('Falta de Stock');
-    });
-
-    console.log(`[NotificationService] Notificação de stock baixo não lida existente: ${hasUnreadLowStockNotification}`);
-    console.log(`[NotificationService] Notificação de falta de stock não lida existente: ${hasUnreadOutOfStockNotification}`);
-
-    // Gerar notificação de stock baixo
-    if (settings.lowStockEnabled && lowStockItems.length > 0 && !hasUnreadLowStockNotification) {
-      console.log('[NotificationService] Criando notificação de stock baixo...');
-      
-      const title = 'Alerta de Stock Baixo';
-      const itemNames = lowStockItems.slice(0, 3).map(item => item.name).join(', ');
-      const extraCount = lowStockItems.length > 3 ? ` e mais ${lowStockItems.length - 3}` : '';
-      const message = lowStockItems.length === 1 
-        ? `${itemNames} está com stock baixo`
-        : `${lowStockItems.length} produtos com stock baixo: ${itemNames}${extraCount}`;
-      
-      console.log(`[NotificationService] Título: ${title}`);
-      console.log(`[NotificationService] Mensagem: ${message}`);
-      
-      try {
-        // Salvar notificação no Firestore
-        const docRef = await addDoc(notificationsRef, {
-          userId,
+  static async sendLocalNotification(
+    title: string,
+    body: string,
+    channelId: string = 'default',
+    data?: any
+  ) {
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
           title,
-          message,
-          timestamp: serverTimestamp(),
-          read: false,
-          type: 'low-stock',
-          itemIds: lowStockItems.map(item => item.id).filter(Boolean)
-        });
-        
-        console.log(`[NotificationService] Notificação salva no Firestore com ID: ${docRef.id}`);
-
-        // Enviar notificação local
-        await this.sendLocalNotification(title, message, 'low-stock');
-        console.log(`[NotificationService] Notificação de stock baixo enviada para ${lowStockItems.length} itens`);
-      } catch (error) {
-        console.error('[NotificationService] Erro ao salvar/enviar notificação de stock baixo:', error);
-      }
-    } else {
-      console.log(`[NotificationService] Notificação de stock baixo não enviada - Enabled: ${settings.lowStockEnabled}, Items: ${lowStockItems.length}, HasUnread: ${hasUnreadLowStockNotification}`);
+          body,
+          sound: true,
+          data: data || { type: channelId },
+        },
+        trigger: null,
+      });
+      console.log(`[NotificationService] Notificação enviada: ${title}`);
+    } catch (error) {
+      console.error('[NotificationService] Erro ao enviar notificação:', error);
     }
-
-    // Gerar notificação de falta de stock
-    if (settings.outOfStockEnabled && outOfStockItems.length > 0 && !hasUnreadOutOfStockNotification) {
-      console.log('[NotificationService] Criando notificação de falta de stock...');
-      
-      const title = 'Alerta de Falta de Stock';
-      const itemNames = outOfStockItems.slice(0, 3).map(item => item.name).join(', ');
-      const extraCount = outOfStockItems.length > 3 ? ` e mais ${outOfStockItems.length - 3}` : '';
-      const message = outOfStockItems.length === 1 
-        ? `${itemNames} está sem stock`
-        : `${outOfStockItems.length} produtos sem stock: ${itemNames}${extraCount}`;
-      
-      console.log(`[NotificationService] Título: ${title}`);
-      console.log(`[NotificationService] Mensagem: ${message}`);
-      
-      try {
-        // Salvar notificação no Firestore
-        const docRef = await addDoc(notificationsRef, {
-          userId,
-          title,
-          message,
-          timestamp: serverTimestamp(),
-          read: false,
-          type: 'out-of-stock',
-          itemIds: outOfStockItems.map(item => item.id).filter(Boolean)
-        });
-        
-        console.log(`[NotificationService] Notificação salva no Firestore com ID: ${docRef.id}`);
-
-        // Enviar notificação local
-        await this.sendLocalNotification(title, message, 'out-of-stock');
-        console.log(`[NotificationService] Notificação de falta de stock enviada para ${outOfStockItems.length} itens`);
-      } catch (error) {
-        console.error('[NotificationService] Erro ao salvar/enviar notificação de falta de stock:', error);
-      }
-    } else {
-      console.log(`[NotificationService] Notificação de falta de stock não enviada - Enabled: ${settings.outOfStockEnabled}, Items: ${outOfStockItems.length}, HasUnread: ${hasUnreadOutOfStockNotification}`);
-    }
-
-  } catch (error) {
-    console.error('[NotificationService] Erro ao gerar notificações de stock:', error);
-  }
-}
-  // Enviar notificação local
-static async sendLocalNotification(title: string, body: string, type?: 'low-stock' | 'out-of-stock') {
-  try {
-    console.log(`[NotificationService] Tentando enviar notificação local: ${title}`);
-    
-    // Verificar se as notificações estão habilitadas
-    const { status } = await Notifications.getPermissionsAsync();
-    console.log(`[NotificationService] Status da permissão: ${status}`);
-    
-    if (status !== 'granted') {
-      console.log('[NotificationService] Permissão de notificação não concedida');
-      return;
-    }
-    
-    // Determinar canal e configurações baseadas no tipo
-    let channelId = 'default';
-    let priority = Notifications.AndroidNotificationPriority.HIGH;
-    
-    if (type === 'low-stock') {
-      channelId = 'low-stock';
-      priority = Notifications.AndroidNotificationPriority.HIGH;
-    } else if (type === 'out-of-stock') {
-      channelId = 'out-of-stock';
-      priority = Notifications.AndroidNotificationPriority.MAX;
-    }
-    
-    console.log(`[NotificationService] Usando canal: ${channelId}, prioridade: ${priority}`);
-    
-    // Agendar notificação para ser exibida imediatamente
-    const notificationId = await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-        sound: true,
-        priority,
-        data: type ? { type } : undefined,
-      },
-      trigger: null, // Exibir imediatamente
-    });
-    
-    console.log(`[NotificationService] Notificação local agendada com ID: ${notificationId}`);
-    console.log(`[NotificationService] Notificação local enviada: ${title}`);
-  } catch (error) {
-    console.error('[NotificationService] Erro ao enviar notificação local:', error);
-  }
-}
-
-  // Agendar notificação de stock baixo (método legado mantido para compatibilidade)
-  static async scheduleLowStockNotification(items: InventoryItem[]) {
-    // Limitar o número de itens mostrados na notificação
-    const maxItemsToShow = 3;
-    let itemNames = items.slice(0, maxItemsToShow).map(item => item.name).join(', ');
-    
-    if (items.length > maxItemsToShow) {
-      itemNames += ` e mais ${items.length - maxItemsToShow} ${items.length - maxItemsToShow === 1 ? 'produto' : 'produtos'}`;
-    }
-    
-    // Usar o número correto de itens no título
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Alerta de Stock Baixo',
-        body: items.length === 1
-          ? `O produto ${itemNames} está com stock baixo`
-          : `${items.length} produtos com stock baixo: ${itemNames}`,
-        data: { type: 'low-stock', count: items.length },
-      },
-      trigger: null, // Para notificação imediata
-    });
   }
 
-  // Agendar notificação de falta de stock (método legado mantido para compatibilidade)
-  static async scheduleOutOfStockNotification(items: InventoryItem[]) {
-    // Limitar o número de itens mostrados na notificação
-    const maxItemsToShow = 3;
-    let itemNames = items.slice(0, maxItemsToShow).map(item => item.name).join(', ');
-    
-    if (items.length > maxItemsToShow) {
-      itemNames += ` e mais ${items.length - maxItemsToShow} ${items.length - maxItemsToShow === 1 ? 'produto' : 'produtos'}`;
-    }
-    
-    // Usar o número correto de itens no título
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Alerta de Falta de Stock',
-        body: items.length === 1
-          ? `O produto ${itemNames} está sem stock`
-          : `${items.length} produtos sem stock: ${itemNames}`,
-        data: { type: 'out-of-stock', count: items.length },
-      },
-      trigger: null, // Para notificação imediata
-    });
-  }
-
-  // Obter status das permissões de notificação
   static async getNotificationPermissionStatus() {
     try {
       const { status } = await Notifications.getPermissionsAsync();
       return status;
     } catch (error) {
-      console.error('[NotificationService] Erro ao verificar permissões de notificação:', error);
+      console.error('[NotificationService] Erro ao verificar permissões:', error);
       return 'undetermined';
     }
   }
 
-  // Limpar dados do usuário do cache
   static async clearUserDataFromCache() {
     try {
       const keysToRemove = [
+        'cachedInventory',
+        'cachedItemHistory',
+        'pendingImageUploads',
+        'localItemHistory',
+        'syncQueue',
+        'lastStockNotificationTime',
         'currentUser',
         'userSettings',
         'notificationSettings',
@@ -668,7 +532,6 @@ static async sendLocalNotification(title: string, body: string, type?: 'low-stoc
     }
   }
 
-  // Cancelar todas as notificações pendentes
   static async cancelAllNotifications() {
     try {
       await Notifications.cancelAllScheduledNotificationsAsync();
@@ -678,7 +541,6 @@ static async sendLocalNotification(title: string, body: string, type?: 'low-stoc
     }
   }
 
-  // Cancelar notificações por identificador
   static async cancelNotificationsByIdentifier(identifier: string) {
     try {
       await Notifications.cancelScheduledNotificationAsync(identifier);
@@ -688,7 +550,6 @@ static async sendLocalNotification(title: string, body: string, type?: 'low-stoc
     }
   }
 
-  // Obter todas as notificações agendadas
   static async getScheduledNotifications() {
     try {
       const notifications = await Notifications.getAllScheduledNotificationsAsync();
@@ -700,7 +561,6 @@ static async sendLocalNotification(title: string, body: string, type?: 'low-stoc
     }
   }
 
-  // Configurar badge do app (iOS)
   static async setBadgeCount(count: number) {
     try {
       await Notifications.setBadgeCountAsync(count);
@@ -710,7 +570,6 @@ static async sendLocalNotification(title: string, body: string, type?: 'low-stoc
     }
   }
 
-  // Limpar badge do app
   static async clearBadge() {
     try {
       await Notifications.setBadgeCountAsync(0);
@@ -720,7 +579,6 @@ static async sendLocalNotification(title: string, body: string, type?: 'low-stoc
     }
   }
 
-  // Método para testar notificações (útil para desenvolvimento)
   static async testNotification() {
     try {
       await this.sendLocalNotification(
@@ -734,7 +592,6 @@ static async sendLocalNotification(title: string, body: string, type?: 'low-stoc
     }
   }
 
-  // Verificar se o dispositivo suporta notificações
   static async checkNotificationSupport() {
     try {
       const isDevice = Device.isDevice;
@@ -757,40 +614,31 @@ static async sendLocalNotification(title: string, body: string, type?: 'low-stoc
     }
   }
 
-  // Configurar listener para quando o app recebe uma notificação
   static setupNotificationReceivedListener() {
     return Notifications.addNotificationReceivedListener(notification => {
       console.log('[NotificationService] Notificação recebida:', notification);
-      // Aqui você pode adicionar lógica adicional quando uma notificação é recebida
     });
   }
 
-  // Configurar listener para quando o usuário toca em uma notificação
   static setupNotificationResponseListener() {
     return Notifications.addNotificationResponseReceivedListener(response => {
       console.log('[NotificationService] Resposta à notificação:', response);
       
-      // Extrair dados da notificação
       const notificationData = response.notification.request.content.data;
       
       if (notificationData?.type === 'low-stock') {
-        // Navegar para tela de stock baixo
         console.log('[NotificationService] Navegando para tela de stock baixo');
       } else if (notificationData?.type === 'out-of-stock') {
-        // Navegar para tela de falta de stock
         console.log('[NotificationService] Navegando para tela de falta de stock');
       }
     });
   }
 
-  // Método para limpar recursos quando o app é fechado
   static cleanup() {
     console.log('[NotificationService] Limpando recursos do serviço de notificações...');
     
-    // Parar verificação periódica
     this.stopPeriodicStockCheck();
     
-    // Limpar flags
     this.authListenerInitialized = false;
     this.isBackgroundTaskRegistered = false;
     this.lastNotificationTime = 0;
@@ -799,18 +647,14 @@ static async sendLocalNotification(title: string, body: string, type?: 'low-stoc
   }
 }
 
-// Inicializar o serviço automaticamente quando o módulo é importado
 NotificationService.initialize().catch(error => {
   console.error('[NotificationService] Erro na inicialização automática:', error);
 });
 
-// Exportar o serviço como padrão também para compatibilidade
 export default NotificationService;
 
-// Exportar tipos para uso em outros arquivos
 export type { InventoryItem, NotificationSettings };
 
-// Exportar constantes úteis
 export const NOTIFICATION_TYPES = {
   LOW_STOCK: 'low-stock',
   OUT_OF_STOCK: 'out-of-stock',
@@ -819,12 +663,11 @@ export const NOTIFICATION_TYPES = {
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   enabled: true,
-  interval: 60, // 1 hora
+  interval: 60,
   lowStockEnabled: true,
   outOfStockEnabled: true,
 };
 
-// Função utilitária para formatar mensagens de notificação
 export const formatNotificationMessage = (items: InventoryItem[], type: 'low-stock' | 'out-of-stock') => {
   const maxItemsToShow = 3;
   const itemNames = items.slice(0, maxItemsToShow).map(item => item.name).join(', ');
@@ -841,23 +684,20 @@ export const formatNotificationMessage = (items: InventoryItem[], type: 'low-sto
   }
 };
 
-// Função para validar configurações de notificação
 export const validateNotificationSettings = (settings: Partial<NotificationSettings>): NotificationSettings => {
   return {
     enabled: settings.enabled ?? DEFAULT_NOTIFICATION_SETTINGS.enabled,
-    interval: Math.max(settings.interval ?? DEFAULT_NOTIFICATION_SETTINGS.interval, 1), // Mínimo 1 minuto
+    interval: Math.max(settings.interval ?? DEFAULT_NOTIFICATION_SETTINGS.interval, 1),
     lowStockEnabled: settings.lowStockEnabled ?? DEFAULT_NOTIFICATION_SETTINGS.lowStockEnabled,
     outOfStockEnabled: settings.outOfStockEnabled ?? DEFAULT_NOTIFICATION_SETTINGS.outOfStockEnabled,
   };
 };
 
-// Hook para usar o serviço de notificações em componentes React
 export const useNotificationService = () => {
   const [settings, setSettings] = React.useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
   const [permissionStatus, setPermissionStatus] = React.useState<string>('undetermined');
 
   React.useEffect(() => {
-    // Carregar configurações ao montar o componente
     const loadSettings = async () => {
       try {
         const currentSettings = await NotificationService.getNotificationSettings();

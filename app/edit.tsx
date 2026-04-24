@@ -21,12 +21,11 @@ import { useNavigation } from '@react-navigation/native';
 import { useFocusEffect } from "@react-navigation/native";
 import { BackHandler } from "react-native";
 import * as Linking from 'expo-linking';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import useCustomAlert from '../hooks/useCustomAlert';
 import { getInventoryItem, updateInventoryItem } from '../inventory-service';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import { db, auth } from '../firebase-config';
+import { supabase } from '../supabase-config';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -44,13 +43,13 @@ interface ItemHistory {
   };
 }
 
-const genAI = new GoogleGenerativeAI("*colocar a sua api key*");
+const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY as string);
 
 // Função melhorada para classificação de produtos
 export async function classifyProduct(imageBase64: string): Promise<string> {
   try {
     // Usando a instância genAI já definida globalmente
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
    
     // Instruções mais específicas para o modelo
     const prompt = `
@@ -194,7 +193,8 @@ export default function EditItem() {
   // Carregar dados do item
   const loadItemData = async () => {
     try {
-      if (!id || !auth.currentUser) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!id || !user) return;
       
       setIsLoading(true);
       
@@ -208,7 +208,8 @@ export default function EditItem() {
         
         // Carregar a foto se existir
         if (itemData.photoUrl) {
-          // Se tiver URL da foto, poderia baixar aqui se necessário
+          // Se tiver URL da foto (Cloudinary), usar como foto original
+          setOriginalItemPhoto(itemData.photoUrl);
         } else if (itemData.photo) {
           setOriginalItemPhoto(itemData.photo);
         }
@@ -223,24 +224,29 @@ export default function EditItem() {
     }
   };
 
-const loadImageFromFirestore = async (itemId: string) => {
+const loadImageFromSupabase = async (itemId: string) => {
   try {
-    if (!auth.currentUser) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     
-    // Buscar diretamente do Firestore
-    const docRef = doc(db, 'inventory', itemId);
-    const docSnap = await getDoc(docRef);
+    // Buscar diretamente do Supabase
+    const { data, error } = await supabase
+      .from('inventory_items')
+      .select('photo, photo_url')
+      .eq('id', itemId)
+      .single();
     
-    if (docSnap.exists()) {
-      const itemData = docSnap.data();
-      
-      if (itemData && (itemData.photo || itemData.photoUrl)) {
-        // Se tem foto em base64, usar diretamente
-        if (itemData.photo) {
-          setCapturedImageBase64(itemData.photo);
-          setOriginalItemPhoto(''); // Limpar foto original
-          console.log('✅ Imagem carregada do produto original');
-        }
+    if (error) {
+      console.error('❌ Erro ao carregar imagem:', error);
+      return;
+    }
+    
+    if (data && (data.photo || data.photo_url)) {
+      // Se tem foto em base64, usar diretamente
+      if (data.photo) {
+        setCapturedImageBase64(data.photo);
+        setOriginalItemPhoto(''); // Limpar foto original
+        console.log('✅ Imagem carregada do produto original');
       }
     }
   } catch (error) {
@@ -304,7 +310,7 @@ const processAppQRCode = (qrData: string) => {
       
       // Converter para base64
       const base64 = await FileSystem.readAsStringAsync(manipResult.uri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
       
       // Atualizar estado
@@ -406,9 +412,9 @@ const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) =>
     setCategory(appQRData.category);
     setQuantity(appQRData.quantity);
     
-    // 🆕 Se tem foto e ID, carregar a imagem do Firestore
+    // 🆕 Se tem foto e ID, carregar a imagem do Supabase
     if (appQRData.hasPhoto && appQRData.id) {
-      loadImageFromFirestore(appQRData.id);
+      loadImageFromSupabase(appQRData.id);
     }
     
     showAlert(
@@ -443,16 +449,22 @@ const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) =>
   useEffect(() => {
     const loadCategories = async () => {
       try {
-        const userId = auth.currentUser?.uid;
-        if (!userId) return;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
   
-        // Buscar categorias do Firebase
-        const q = query(collection(db, 'inventory'), where('userId', '==', userId));
-        const snapshot = await getDocs(q);
+        // Buscar categorias do Supabase
+        const { data, error } = await supabase
+          .from('inventory_items')
+          .select('category')
+          .eq('user_id', user.id);
+        
+        if (error) {
+          console.error("Erro ao carregar categorias", error);
+          return;
+        }
         
         const categoriesFromItems: string[] = [];
-        snapshot.forEach((doc) => {
-          const item = doc.data();
+        data?.forEach((item) => {
           if (item.category) {
             categoriesFromItems.push(item.category);
           }
@@ -505,7 +517,7 @@ const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) =>
 
       while (attempts < maxAttempts) {
         try {
-          const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+          const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
           
           // Prompt melhorado com exemplos e regras mais explícitas
           const prompt = `
@@ -715,7 +727,7 @@ const openGallery = async (mode: 'simple' | 'photo' | 'barcode') => {
       
       // Converter para base64
       const base64 = await FileSystem.readAsStringAsync(manipResult.uri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
       
       setCapturedImageBase64(base64);
@@ -786,7 +798,8 @@ const openGallery = async (mode: 'simple' | 'photo' | 'barcode') => {
   // Função para atualizar o item
   const handleUpdateItem = async () => {
     // Verificar se o Utilizador está autenticado
-    if (!auth.currentUser) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
       showAlert("Erro", "Você precisa de estar autenticado para editar produtos.", [
         { text: "OK", onPress: () => {} }
       ]);
@@ -915,7 +928,13 @@ const openGallery = async (mode: 'simple' | 'photo' | 'barcode') => {
           {(capturedImageBase64 || originalItemPhoto) ? (
             <View style={styles.imagePreviewContainer}>
               <Image
-                source={{ uri: `data:image/jpeg;base64,${capturedImageBase64 || originalItemPhoto}` }}
+                source={{ 
+                  uri: capturedImageBase64 
+                    ? `data:image/jpeg;base64,${capturedImageBase64}` 
+                    : originalItemPhoto.startsWith('http') 
+                      ? originalItemPhoto 
+                      : `data:image/jpeg;base64,${originalItemPhoto}` 
+                }}
                 style={styles.imagePreview}
                 resizeMode="contain"
               />

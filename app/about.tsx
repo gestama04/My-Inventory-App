@@ -11,7 +11,7 @@ import {
 import { useRouter, Stack } from 'expo-router';
 import { useTheme } from './theme-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
@@ -22,7 +22,7 @@ export default function AboutScreen() {
   const { currentTheme } = useTheme();
 
   const openWebsite = () => {
-    Linking.openURL('https://github.com/gestama04/CURRICULO-DIGITAL-BOOTSTRAPP/tree/main/bernardo');
+    Linking.openURL('https://bernardosilvacurriculodigital.pt');
   };
 
   // Corrigido com tipos explícitos

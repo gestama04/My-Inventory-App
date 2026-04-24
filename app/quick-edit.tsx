@@ -15,8 +15,7 @@ import { useAuth } from '../auth-context';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { getInventoryItems, addToHistory } from '../inventory-service';
-import { updateDoc, doc, getDoc, serverTimestamp, collection, query, where, getDocs, deleteDoc  } from 'firebase/firestore';
-import { db } from '../firebase-config';
+import { supabase } from '../supabase-config';
 import useCustomAlert from '../hooks/useCustomAlert';
 import { CategoryIconService } from '../services/category-icon-service';
 import { getUserSettings } from '../inventory-service';
@@ -72,13 +71,16 @@ useEffect(() => {
         console.log("Threshold global encontrado:", savedThreshold);
         setGlobalLowStockThreshold(savedThreshold);
       } else {
-        // Se não encontrar, tentar diretamente do Firestore
-        const userSettingsDoc = await getDoc(doc(db, 'userSettings', currentUser.uid));
+        // Se não encontrar, tentar diretamente do Supabase
+        const { data: settingsData, error } = await supabase
+          .from('user_settings')
+          .select('global_low_stock_threshold')
+          .eq('user_id', currentUser.id)
+          .single();
         
-        if (userSettingsDoc.exists()) {
-          const settings = userSettingsDoc.data();
-          const savedThreshold = settings.globalLowStockThreshold || "5";
-          console.log("Threshold do Firestore:", savedThreshold);
+        if (!error && settingsData) {
+          const savedThreshold = settingsData.global_low_stock_threshold || "5";
+          console.log("Threshold do Supabase:", savedThreshold);
           setGlobalLowStockThreshold(savedThreshold);
         } else {
           console.log("Nenhuma configuração encontrada, usando padrão: 5");
@@ -136,30 +138,33 @@ const updateQuantity = async (item: InventoryItem, newQuantity: number) => {
   setUpdatingItems(prev => new Set(prev).add(item.id!));
   
   try {
-    // Buscar TODOS os itens com o mesmo nome e categoria no Firestore
-    const q = query(
-      collection(db, 'inventory'),
-      where('userId', '==', currentUser?.uid),
-      where('name', '==', item.name),
-      where('category', '==', item.category || '')
-    );
+    // Buscar TODOS os itens com o mesmo nome e categoria no Supabase
+    const { data: duplicateItems, error: fetchError } = await supabase
+      .from('inventory_items')
+      .select('id')
+      .eq('user_id', currentUser?.id)
+      .eq('name', item.name)
+      .eq('category', item.category || '');
     
-    const snapshot = await getDocs(q);
-    const duplicateItems = snapshot.docs;
+    if (fetchError) throw fetchError;
     
-    if (duplicateItems.length <= 1) {
+    if (!duplicateItems || duplicateItems.length <= 1) {
       // Se há apenas um item, atualizar normalmente
       const updateData: any = {
         quantity: newQuantity.toString(),
-        updatedAt: serverTimestamp()
+        updated_at: new Date().toISOString()
       };
       
       if (item.lowStockThreshold !== undefined && item.lowStockThreshold !== null && item.lowStockThreshold !== '') {
-        updateData.lowStockThreshold = item.lowStockThreshold;
+        updateData.low_stock_threshold = item.lowStockThreshold;
       }
       
-      const itemRef = doc(db, 'inventory', item.id);
-      await updateDoc(itemRef, updateData);
+      const { error: updateError } = await supabase
+        .from('inventory_items')
+        .update(updateData)
+        .eq('id', item.id);
+      
+      if (updateError) throw updateError;
     } else {
       // Se há múltiplos itens duplicados, consolidar
       console.log(`Encontrados ${duplicateItems.length} itens duplicados para ${item.name}`);
@@ -170,18 +175,28 @@ const updateQuantity = async (item: InventoryItem, newQuantity: number) => {
       // Atualizar o primeiro item com a nova quantidade
       const updateData: any = {
         quantity: newQuantity.toString(),
-        updatedAt: serverTimestamp()
+        updated_at: new Date().toISOString()
       };
       
       if (item.lowStockThreshold !== undefined && item.lowStockThreshold !== null && item.lowStockThreshold !== '') {
-        updateData.lowStockThreshold = item.lowStockThreshold;
+        updateData.low_stock_threshold = item.lowStockThreshold;
       }
       
-      await updateDoc(firstItem.ref, updateData);
+      const { error: updateError } = await supabase
+        .from('inventory_items')
+        .update(updateData)
+        .eq('id', firstItem.id);
+      
+      if (updateError) throw updateError;
       
       // Deletar os itens duplicados
-      const deletePromises = itemsToDelete.map(itemDoc => deleteDoc(itemDoc.ref));
-      await Promise.all(deletePromises);
+      const idsToDelete = itemsToDelete.map(itemDoc => itemDoc.id);
+      const { error: deleteError } = await supabase
+        .from('inventory_items')
+        .delete()
+        .in('id', idsToDelete);
+      
+      if (deleteError) throw deleteError;
       
       console.log(`Consolidados ${duplicateItems.length} itens em 1 item com quantidade ${newQuantity}`);
     }

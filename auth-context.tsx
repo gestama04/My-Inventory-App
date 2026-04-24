@@ -1,24 +1,20 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-  updateProfile,
-  sendPasswordResetEmail,
-  User,
-   sendEmailVerification
-} from 'firebase/auth';
-import { auth, db } from './firebase-config';
+import { supabase } from './supabase-config';
+import { 
+  upsertUserProfile, 
+  updateExpoPushToken,
+  getUserProfile 
+} from './supabase-service';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { clearAllListeners } from './firestore-listeners';
 import * as Notifications from 'expo-notifications';
+import { User, Session } from '@supabase/supabase-js';
+import { clearAllListeners } from './supabase-listeners';
 
 interface AuthContextType {
   currentUser: User | null;
+  session: Session | null;
   loading: boolean;
-  login: (email: string, password: string, rememberMe: boolean) => Promise<User>; // Alterado para Promise<User>
+  login: (email: string, password: string, rememberMe: boolean) => Promise<User>;
   register: (email: string, password: string, userData: UserData) => Promise<User | null>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
@@ -32,32 +28,50 @@ interface UserData {
   birthDate?: string;
 }
 
+// Converter DD/MM/YYYY para YYYY-MM-DD (formato PostgreSQL)
+const formatDateForDB = (dateStr?: string): string | undefined => {
+  if (!dateStr) return undefined;
+  
+  // Se já está em formato ISO (YYYY-MM-DD), retorna como está
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return dateStr;
+  }
+  
+  // Converter de DD/MM/YYYY para YYYY-MM-DD
+  const parts = dateStr.split('/');
+  if (parts.length === 3) {
+    const [day, month, year] = parts;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  
+  return undefined;
+};
+
 const AuthContext = createContext<AuthContextType>({
   currentUser: null,
+  session: null,
   loading: true,
   login: async () => { return null as unknown as User },
   register: async () => null,
   logout: async () => {},
   resetPassword: async () => {},
   checkEmailExists: async () => false,
-  reloadUser: async () => {}, // 🆕 NOVA FUNÇÃO
+  reloadUser: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // 🆕 FUNÇÃO PARA RECARREGAR O USUÁRIO
   const reloadUser = async () => {
     try {
-      if (auth.currentUser) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
         console.log('🔄 Recarregando dados do usuário...');
-        await auth.currentUser.reload();
-        
-        // Forçar atualização do estado
-        setCurrentUser({...auth.currentUser});
+        setCurrentUser(user);
         console.log('✅ Usuário recarregado com sucesso');
       }
     } catch (error) {
@@ -65,16 +79,12 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     }
   };
 
-  // Função para persistir o utilizador no AsyncStorage
   const persistUser = async (user: User | null, rememberMe: boolean = false) => {
     try {
       if (user && rememberMe) {
-        // Armazenar apenas os dados necessários do utilizador
         const userData = {
-          uid: user.uid,
+          uid: user.id,
           email: user.email,
-          displayName: user.displayName,
-          photoURL: user.photoURL,
         };
         await AsyncStorage.setItem('user', JSON.stringify(userData));
         await AsyncStorage.setItem('rememberMe', 'true');
@@ -87,249 +97,267 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     }
   };
 
-useEffect(() => {
-  const loadPersistedUser = async () => {
-    try {
-      if (!auth) {
-        console.error("Firebase Auth não está disponível");
+  useEffect(() => {
+    const initializeAuth = async () => {
+      try {
+        const rememberMe = await AsyncStorage.getItem('rememberMe');
+        
+        // Verificar sessão existente
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        
+        if (currentSession) {
+          setSession(currentSession);
+          setCurrentUser(currentSession.user);
+          
+          // Configurar notificações se o email estiver verificado
+          if (currentSession.user.email_confirmed_at) {
+            await setupNotifications(currentSession.user.id);
+          }
+        } else if (rememberMe !== 'true') {
+          // Se não tem sessão e não é para lembrar, limpar
+          await AsyncStorage.removeItem('user');
+        }
+      } catch (error) {
+        console.error('Erro ao inicializar auth:', error);
+      } finally {
         setLoading(false);
+      }
+    };
+
+    initializeAuth();
+
+    // Listener para mudanças de autenticação
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      console.log('Auth state changed:', event);
+      
+      if (event === 'INITIAL_SESSION') {
+        // Já tratado no initializeAuth, ignorar para evitar duplicação
         return;
       }
-
-      const rememberMe = await AsyncStorage.getItem('rememberMe');
-      if (rememberMe !== 'true') {
-        setLoading(false);
-        return;
-      }
-    } catch (error) {
-      console.error('Erro ao verificar rememberMe:', error);
-      setLoading(false);
-    }
-  };
-
-  loadPersistedUser();
-
-  try {
-    if (!auth) {
-      console.error("Firebase Auth não está disponível");
-      setLoading(false);
-      return () => {};
-    }
-
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
+      
+      setSession(newSession);
+      setCurrentUser(newSession?.user ?? null);
       setLoading(false);
       
-      // 🆕 SALVAR TOKEN SEMPRE QUE O USUÁRIO ESTIVER LOGADO
-      if (user && user.emailVerified) {
-        try {
-          console.log('🔔 Configurando notificações para usuário logado...');
-          
-          const { NotificationService } = await import('./services/notification-service');
-          await NotificationService.initialize();
-          
-          // Verificar se já tem token salvo
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
-          const userData = userDoc.data();
-          
-          if (!userData?.expoPushToken) {
-            console.log('📱 Solicitando permissões de notificação...');
-            
-            const { status } = await Notifications.requestPermissionsAsync();
-            console.log('Permission status:', status);
-            
-            if (status === 'granted') {
-              const token = await Notifications.getExpoPushTokenAsync({
-                projectId: '3abf848f-326e-4719-a3c6-9c4c60605aa7'
-              });
-              
-              if (token) {
-                await setDoc(doc(db, 'users', user.uid), {
-                  expoPushToken: token.data,
-                  lastTokenUpdate: new Date()
-                }, { merge: true });
-                
-                console.log('✅ Expo Push Token salvo:', token.data);
-              }
-            } else {
-              console.log('❌ Permissão de notificação negada');
-            }
-          } else {
-            console.log('✅ Token já existe:', userData.expoPushToken);
-          }
-        } catch (tokenError) {
-          console.error('❌ Erro ao configurar notificações:', tokenError);
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && newSession?.user) {
+        if (newSession.user.email_confirmed_at) {
+          await setupNotifications(newSession.user.id);
         }
+      }
+      
+      if (event === 'SIGNED_OUT') {
+        clearAllListeners();
       }
     });
 
-    return unsubscribe;
-  } catch (error) {
-    console.error("Erro ao configurar listener de autenticação:", error);
-    setLoading(false);
-    return () => {};
-  }
-}, []);
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
-const login = async (email: string, password: string, rememberMe: boolean = false) => {
-  try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-    
-    // Verificar se o email foi verificado
-    if (!user.emailVerified) {
-      // Enviar novo email de verificação
-      await sendEmailVerification(user);
-      
-      // Fazer logout do usuário
-      await signOut(auth);
-      
-      // Lançar um erro específico para email não verificado
-      throw new Error('email-not-verified');
-    }
-    
-    // Se o email estiver verificado, continuar com o login normal
-    await persistUser(user, rememberMe);
-    
-    // 🆕 SALVAR EXPO PUSH TOKEN
+  const setupNotifications = async (userId: string) => {
     try {
+      console.log('🔔 Configurando notificações para usuário logado...');
+      
       const { NotificationService } = await import('./services/notification-service');
       await NotificationService.initialize();
       
-      // Salvar Expo Push Token no Firestore
-      const { status } = await Notifications.requestPermissionsAsync();
-      if (status === 'granted') {
-        const token = await Notifications.getExpoPushTokenAsync({
-          projectId: '3abf848f-326e-4719-a3c6-9c4c60605aa7'
-        });
+      // Verificar se já tem token salvo
+      const profile = await getUserProfile(userId);
+      
+      if (!profile?.expo_push_token) {
+        console.log('📱 Solicitando permissões de notificação...');
         
-        if (token) {
-          await setDoc(doc(db, 'users', user.uid), {
-            expoPushToken: token.data,
-            lastTokenUpdate: new Date()
-          }, { merge: true });
+        const { status } = await Notifications.requestPermissionsAsync();
+        console.log('Permission status:', status);
+        
+        if (status === 'granted') {
+          const token = await Notifications.getExpoPushTokenAsync({
+            projectId: '3abf848f-326e-4719-a3c6-9c4c60605aa7'
+          });
           
-          console.log('✅ Expo Push Token salvo:', token.data);
+          if (token) {
+            await updateExpoPushToken(userId, token.data);
+            console.log('✅ Expo Push Token salvo:', token.data);
+          }
+        } else {
+          console.log('❌ Permissão de notificação negada');
         }
+      } else {
+        console.log('✅ Token já existe:', profile.expo_push_token);
       }
     } catch (tokenError) {
-      console.error('❌ Erro ao salvar push token:', tokenError);
-      // Não falhar o login por causa do token
+      console.error('❌ Erro ao configurar notificações:', tokenError);
     }
-    
-    return user;
-  } catch (error) {
-    // Propagar o erro original completo, mantendo o código de erro
-    throw error;
-  }
-};
+  };
 
-  
-
-const register = async (email: string, password: string, userData: UserData) => {
-  try {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  const login = async (email: string, password: string, rememberMe: boolean = false) => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
       
-    // Atualizar o perfil do utilizador com o nome completo
-    const displayName = `${userData.firstName} ${userData.lastName}`;
-    if (userCredential.user) {
-      await updateProfile(userCredential.user, {
-        displayName: displayName
-      });
-        
-      // Enviar email de verificação
-      await sendEmailVerification(userCredential.user);
-        
-      // Salvar dados adicionais no Firestore
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        birthDate: userData.birthDate || null,
-        email: email,
-        createdAt: new Date(),
-        emailVerified: false // Adicionar campo para rastrear status de verificação
-      });
-        
-      // Atualizar o utilizador atual para refletir as mudanças
-      setCurrentUser({...userCredential.user});
+      if (error) {
+        // Mapear erros do Supabase para mensagens compatíveis
+        if (error.message.includes('Invalid login credentials')) {
+          throw { code: 'auth/invalid-credential', message: error.message };
+        }
+        if (error.message.includes('Email not confirmed')) {
+          // Reenviar email de confirmação
+          await supabase.auth.resend({
+            type: 'signup',
+            email,
+          });
+          throw new Error('email-not-verified');
+        }
+        throw error;
+      }
+      
+      if (!data.user) {
+        throw new Error('Utilizador não encontrado');
+      }
+      
+      // Verificar se o email foi verificado
+      if (!data.user.email_confirmed_at) {
+        await supabase.auth.resend({
+          type: 'signup',
+          email,
+        });
+        await supabase.auth.signOut();
+        throw new Error('email-not-verified');
+      }
+      
+      await persistUser(data.user, rememberMe);
+      
+      // Salvar email se "lembrar-me" estiver ativado
+      if (rememberMe) {
+        await AsyncStorage.setItem('savedEmail', email);
+      } else {
+        await AsyncStorage.removeItem('savedEmail');
+      }
+      
+      // Configurar notificações
+      await setupNotifications(data.user.id);
+      
+      return data.user;
+    } catch (error) {
+      throw error;
     }
+  };
+
+  const register = async (email: string, password: string, userData: UserData) => {
+    try {
+      console.log('[Register] Iniciando registo para:', email);
       
-    return userCredential.user;
-  } catch (error) {
-    throw error; // Propagar o erro original
-  }
-};
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            first_name: userData.firstName,
+            last_name: userData.lastName,
+          },
+        },
+      });
+      
+      console.log('[Register] Resposta do signUp:', { 
+        user: data?.user?.id, 
+        session: !!data?.session,
+        error: error?.message 
+      });
+      
+      if (error) {
+        console.error('[Register] Erro no signUp:', error);
+        if (error.message.includes('already registered')) {
+          throw { code: 'auth/email-already-in-use', message: error.message };
+        }
+        throw error;
+      }
+      
+      if (!data.user) {
+        console.error('[Register] Utilizador não retornado');
+        throw new Error('Erro ao criar utilizador');
+      }
+      
+      console.log('[Register] Utilizador criado, a guardar perfil...');
+      
+      // Criar perfil do utilizador
+      await upsertUserProfile({
+        user_id: data.user.id,
+        first_name: userData.firstName,
+        last_name: userData.lastName,
+        birth_date: formatDateForDB(userData.birthDate),
+      });
+      
+      console.log('[Register] Perfil guardado com sucesso');
+      
+      setCurrentUser(data.user);
+      
+      return data.user;
+    } catch (error) {
+      console.error('[Register] Erro geral:', error);
+      throw error;
+    }
+  };
 
-const logout = async () => {
-  try {
-    // 🆕 LIMPAR LISTENERS ANTES DO LOGOUT
-    clearAllListeners();
-    
-    // Parar a verificação periódica de stock
-    const { NotificationService } = await import('./services/notification-service');
-    NotificationService.stopPeriodicStockCheck();
-    
-    // Limpar AsyncStorage items que podem ser usados para requisições do Firestore
-    await AsyncStorage.removeItem("cachedInventory");
-    await AsyncStorage.removeItem("cachedItemHistory");
-    await AsyncStorage.removeItem("inventory_stats_" + auth.currentUser?.uid);
-    await AsyncStorage.removeItem("userSettings");
-    await AsyncStorage.removeItem("syncQueue");
-    await AsyncStorage.removeItem("localItemHistory");
-    await AsyncStorage.removeItem("lastStockNotificationTime");
-    
-    // Fazer logout do Firebase Auth
-    await signOut(auth);
-    
-    // Limpar dados do utilizador do AsyncStorage
-    await persistUser(null);
-    
-    // Adicionar um pequeno atraso para garantir que todas as operações sejam concluídas
-    await new Promise(resolve => setTimeout(resolve, 300));
-  } catch (error: any) {
-    console.error('Erro ao fazer logout:', error);
-    throw new Error(error.message);
-  }
-};
-
-  
+  const logout = async () => {
+    try {
+      clearAllListeners();
+      
+      const { NotificationService } = await import('./services/notification-service');
+      NotificationService.stopPeriodicStockCheck();
+      
+      // Limpar AsyncStorage
+      await AsyncStorage.removeItem("cachedInventory");
+      await AsyncStorage.removeItem("cachedItemHistory");
+      await AsyncStorage.removeItem("userSettings");
+      await AsyncStorage.removeItem("syncQueue");
+      await AsyncStorage.removeItem("localItemHistory");
+      await AsyncStorage.removeItem("lastStockNotificationTime");
+      
+      if (currentUser) {
+        await AsyncStorage.removeItem("inventory_stats_" + currentUser.id);
+      }
+      
+      await supabase.auth.signOut();
+      await persistUser(null);
+      
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } catch (error: any) {
+      console.error('Erro ao fazer logout:', error);
+      throw new Error(error.message);
+    }
+  };
 
   const resetPassword = async (email: string) => {
     try {
-      await sendPasswordResetEmail(auth, email);
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: 'myinventoryapp://reset-password',
+      });
+      
+      if (error) throw error;
     } catch (error) {
-      throw error; // Propagar o erro original
+      throw error;
     }
   };
 
   const checkEmailExists = async (email: string): Promise<boolean> => {
-    try {
-      // Tenta fazer login com uma senha inválida para verificar se o email existe
-      await signInWithEmailAndPassword(auth, email, "checkonly");
-      return true;
-    } catch (error: any) {
-      // Se o erro for "auth/wrong-password", o email existe
-      if (error.code === "auth/wrong-password") {
-        return true;
-      }
-      // Se o erro for "auth/user-not-found", o email não existe
-      if (error.code === "auth/user-not-found") {
-        return false;
-      }
-      // Para outros erros, assumimos que o email não existe
-      return false;
-    }
+    // Supabase não tem uma forma direta de verificar se email existe
+    // Retornamos false para não bloquear o fluxo de registo
+    return false;
   };
 
   const value = {
     currentUser,
+    session,
     loading,
     login,
     register,
     logout,
     resetPassword,
     checkEmailExists,
-    reloadUser // 🆕 ADICIONAR À INTERFACE
+    reloadUser,
   };
 
   return (

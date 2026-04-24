@@ -7,15 +7,7 @@ import { VictoryPie } from 'victory-native';
 import { useAuth } from '../auth-context';
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-// Firebase imports
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs,
-  orderBy
-} from 'firebase/firestore';
-import { db } from '../firebase-config';
+import { supabase } from '../supabase-config';
 import { CategoryIconService } from '../services/category-icon-service';
 
 interface InventoryItem {
@@ -38,7 +30,7 @@ interface AIInsight {
   type: 'info' | 'warning' | 'suggestion';
 }
 
-const genAI = new GoogleGenerativeAI("*colocar a sua api key*");
+const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY as string);
 
 export default function StatisticsScreen() {
   const [totalItems, setTotalItems] = useState(0);
@@ -59,7 +51,7 @@ const generateAIInsights = async () => {
   
   setLoadingInsights(true);
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
     const inventoryData = {
       totalItems,
@@ -204,26 +196,24 @@ const loadStats = async () => {
   }
   setLoading(true);
   try {
-    // Procurar itens do inventário do utilizador atual
-    const inventoryRef = collection(db, 'inventory');
-    const q = query(
-      inventoryRef,
-      where('userId', '==', currentUser.uid),
-      orderBy('name')
-    );
+    // Procurar itens do inventário do utilizador atual via Supabase
+    const { data: queryData, error } = await supabase
+      .from('inventory_items')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .order('name');
     
-    const querySnapshot = await getDocs(q);
-    const rawInventory: InventoryItem[] = [];
+    if (error) {
+      console.error('Erro ao obter itens:', error);
+      throw error;
+    }
     
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      rawInventory.push({
-        id: doc.id,
-        category: data.category || 'Sem Categoria',
-        name: data.name,
-        quantity: parseInt(data.quantity.toString()) || 0
-      });
-    });
+    const rawInventory: InventoryItem[] = (queryData || []).map((item: any) => ({
+      id: item.id,
+      category: item.category || 'Sem Categoria',
+      name: item.name,
+      quantity: parseInt(item.quantity?.toString() || '0')
+    }));
     
     // Combinar itens com o mesmo nome e categoria
     const combinedInventoryMap: Record<string, InventoryItem> = {};

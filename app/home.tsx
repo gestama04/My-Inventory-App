@@ -21,7 +21,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-// Importar serviços do Firebase
+// Importar serviços do inventário
 import { getInventoryStats } from '../inventory-service';
 import { useAuth } from '../auth-context';
 import useCustomAlert from '../hooks/useCustomAlert';
@@ -40,7 +40,7 @@ interface InventoryItem {
   photoUrl?: string;
 }
 
-const genAI = new GoogleGenerativeAI("AIzaSyDuUDSAfqwznlx9XMw-Xea4f0bU-sfe_4k");
+const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY as string);
 
 
 // Função para obter ícone baseado na categoria
@@ -115,7 +115,7 @@ const generateDailyInsight = async () => {
   if (!currentUser || inventoryStats.totalItems === 0) return;
   
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
     const prompt = `
     Com base nos seguintes dados do inventário:
@@ -238,11 +238,15 @@ const loadInventoryStats = async () => {
   }
 }, [currentUser]);
   
+// Gerar insight apenas uma vez por sessão (quando há items)
+const [insightGenerated, setInsightGenerated] = useState(false);
+
 useEffect(() => {
-  if (inventoryStats.totalItems >= 0) {
+  if (inventoryStats.totalItems > 0 && !insightGenerated && !dailyInsight) {
     generateDailyInsight();
+    setInsightGenerated(true);
   }
-}, [inventoryStats]);
+}, [inventoryStats.totalItems, insightGenerated, dailyInsight]);
 
   // Função para atualizar os dados
   const onRefresh = async () => {
@@ -473,9 +477,9 @@ Gerado pela app My Inventory 📱`;
       style={styles.profileButton}
       onPress={() => router.push("/profile" as any)}
     >
-      {currentUser?.photoURL ? (
+      {(currentUser?.user_metadata?.avatar_url || currentUser?.user_metadata?.picture) ? (
         <Image 
-          source={{ uri: currentUser.photoURL }} 
+          source={{ uri: currentUser.user_metadata.avatar_url || currentUser.user_metadata.picture }} 
           style={styles.profileImage} 
         />
       ) : (
@@ -484,8 +488,9 @@ Gerado pela app My Inventory 📱`;
           { backgroundColor: currentTheme === "dark" ? "#34495e" : "#bdc3c7" }
         ]}>
           <Text style={styles.profileInitial}>
-            {currentUser?.displayName ? currentUser.displayName[0].toUpperCase() : 
-             currentUser?.email ? currentUser.email[0].toUpperCase() : "?"}
+            {(currentUser?.user_metadata?.display_name || currentUser?.user_metadata?.full_name) 
+              ? (currentUser.user_metadata.display_name || currentUser.user_metadata.full_name)[0].toUpperCase() 
+              : currentUser?.email ? currentUser.email[0].toUpperCase() : "?"}
           </Text>
         </View>
       )}

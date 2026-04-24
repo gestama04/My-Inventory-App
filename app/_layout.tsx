@@ -7,7 +7,7 @@ import { NotificationService } from '../services/notification-service';
 import { AuthProvider } from '../auth-context';
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
-import { auth } from '../firebase-config';
+import { supabase } from '../supabase-config';
 
 // Manter a splash screen visível até que estejamos prontos para mostrar o app
 SplashScreen.preventAutoHideAsync();
@@ -21,11 +21,14 @@ function AppLayout() {
   useEffect(() => {
     async function prepare() {
       try {
-        // Verificar se o Firebase Auth está disponível
-        if (auth) {
-          console.log("Firebase Auth está disponível");
+        // Verificar se o Supabase Auth está disponível
+        const { data, error } = await supabase.auth.getUser();
+        if (error) {
+          console.log("Supabase Auth: Nenhum utilizador autenticado");
+        } else if (data.user) {
+          console.log("Supabase Auth está disponível, utilizador:", data.user.id);
         } else {
-          console.error("Firebase Auth não está disponível");
+          console.log("Supabase Auth está disponível, nenhum utilizador");
         }
         
         // Inicializar o serviço de notificações

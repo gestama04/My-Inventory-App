@@ -43,7 +43,7 @@ export default function HelpScreen() {
   ];
 
   const contactSupport = () => {
-    Linking.openURL('mailto:pv26632@estgl.ipv.pt?subject=Suporte%20ao%20Utilizador');
+    Linking.openURL('mailto:benigestama@gmail.com?subject=Suporte%20ao%20Utilizador');
   };
 
   return (

@@ -7,21 +7,8 @@ import { NotificationService } from '../services/notification-service';
 import { useAuth } from '../auth-context';
 import CustomAlert from '../components/CustomAlert';
 
-// Firebase imports
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  updateDoc, 
-  doc, 
-  deleteDoc,
-  orderBy,
-  onSnapshot,
-  addDoc,
-  serverTimestamp
-} from 'firebase/firestore';
-import { db } from '../firebase-config';
+// Supabase imports
+import { supabase } from '../supabase-config';
 import { getInventoryItems, getUserSettings } from '../inventory-service';
 
 interface InventoryItem {
@@ -38,9 +25,9 @@ interface NotificationItem {
   id?: string;
   title: string;
   message: string;
-  timestamp: any; // Firestore timestamp
+  timestamp: any;
   read: boolean;
-  userId?: string;
+  user_id?: string;
   itemIds?: string[]; // IDs dos itens relacionados à notificação
 }
 
@@ -101,46 +88,64 @@ useEffect(() => {
   const loadNotifications = () => {
     if (!currentUser) return;
     
-    // Criar query para buscar notificações do Utilizador atual, ordenadas por timestamp
-    const notificationsRef = collection(db, 'notifications');
-    const q = query(
-      notificationsRef, 
-      where('userId', '==', currentUser.uid),
-      orderBy('timestamp', 'desc')
-    );
-    
-const loadNotificationSettings = async () => {
-  const settings = await NotificationService.getNotificationSettings();
-  setNotificationSettings(settings);
-};
+    const loadNotificationSettings = async () => {
+      const settings = await NotificationService.getNotificationSettings();
+      setNotificationSettings(settings);
+    };
 
-loadNotificationSettings();
+    loadNotificationSettings();
 
-    // Usar onSnapshot para receber atualizações em tempo real
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const notificationsList: NotificationItem[] = [];
-      
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        notificationsList.push({
-          id: doc.id,
-          title: data.title,
-          message: data.message,
-          timestamp: data.timestamp,
-          read: data.read,
-          itemIds: data.itemIds || []
-        });
-      });
-      
-      setNotifications(notificationsList);
-      setLoading(false);
-    }, (error) => {
-      console.error("Erro ao carregar notificações:", error);
-      setLoading(false);
-    });
-    
+    // Buscar notificações iniciais
+    const fetchNotifications = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .order('timestamp', { ascending: false });
+
+        if (error) throw error;
+
+        const notificationsList: NotificationItem[] = (data || []).map((item: any) => ({
+          id: item.id,
+          title: item.title,
+          message: item.message,
+          timestamp: item.timestamp,
+          read: item.read,
+          itemIds: item.item_ids || []
+        }));
+
+        setNotifications(notificationsList);
+        setLoading(false);
+      } catch (error) {
+        console.error("Erro ao carregar notificações:", error);
+        setLoading(false);
+      }
+    };
+
+    fetchNotifications();
+
+    // Subscrição em tempo real com Supabase
+    const subscription = supabase
+      .channel('notifications-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${currentUser.id}`
+        },
+        () => {
+          fetchNotifications();
+        }
+      )
+      .subscribe();
+
     // Retornar função de limpeza
-    return unsubscribe;
+    return () => {
+      subscription.unsubscribe();
+    };
   };
 
 
@@ -148,10 +153,7 @@ loadNotificationSettings();
 const formatNotificationTimestamp = (timestamp: any): string => {
   if (!timestamp) return "Data inválida";
   try {
-    if (typeof timestamp.toDate === 'function') { // Timestamp do Firestore
-      return timestamp.toDate().toLocaleString('pt-PT'); // Use o locale desejado
-    }
-    const date = new Date(timestamp); // Tenta converter se for string/número
+    const date = new Date(timestamp);
     if (isNaN(date.getTime())) {
       return "Data inválida";
     }
@@ -166,11 +168,13 @@ const formatNotificationTimestamp = (timestamp: any): string => {
     if (!currentUser || !id) return;
     
     try {
-      // Atualizar no Firestore
-      const notificationRef = doc(db, 'notifications', id);
-      await updateDoc(notificationRef, {
-        read: true
-      });
+      // Atualizar no Supabase
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', id);
+
+      if (error) throw error;
       
       // Atualizar estado local
       setNotifications(prev =>
@@ -201,14 +205,13 @@ const formatNotificationTimestamp = (timestamp: any): string => {
     if (!currentUser) return;
     
     try {
-      // Obter todas as notificações do Utilizador
-      const notificationsRef = collection(db, 'notifications');
-      const q = query(notificationsRef, where('userId', '==', currentUser.uid));
-      const snapshot = await getDocs(q);
-      
-      // Excluir cada documento
-      const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
-      await Promise.all(deletePromises);
+      // Excluir todas as notificações do Utilizador no Supabase
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', currentUser.id);
+
+      if (error) throw error;
       
       // Atualizar estado local
       setNotifications([]);

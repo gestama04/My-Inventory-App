@@ -21,7 +21,6 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import useCustomAlert from '../hooks/useCustomAlert';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
-import { sendEmailVerification } from 'firebase/auth';
 
 export default function RegisterScreen() {
   const [firstName, setFirstName] = useState('');

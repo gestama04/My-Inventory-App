@@ -1,50 +1,117 @@
-# Welcome to your Expo app 👋
+# My Inventory App 📦
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Aplicação de gestão de inventário pessoal desenvolvida com React Native e Expo.
 
-## Get started
+## Tecnologias
 
-1. Install dependencies
+- **Frontend**: React Native + Expo
+- **Backend**: Supabase (PostgreSQL + Auth + Realtime)
+- **Armazenamento de Imagens**: Cloudinary
+- **IA**: Google Gemini (classificação de produtos e insights)
 
-   ```bash
-   npm install
-   ```
+## Configuração
 
-2. Start the app
-
-   ```bash
-    npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+### 1. Instalar dependências
 
 ```bash
-npm run reset-project
+npm install --legacy-peer-deps
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### 2. Configurar Supabase
 
-## Learn more
+1. Cria uma conta em [supabase.com](https://supabase.com)
+2. Cria um novo projeto
+3. Vai ao **SQL Editor** e executa o script `supabase-schema.sql` para criar as tabelas
+4. Vai a **Settings > API** e copia:
+   - **Project URL**
+   - **anon/public key**
+5. Edita o ficheiro `supabase-config.ts`:
 
-To learn more about developing your project with Expo, look at the following resources:
+```typescript
+const SUPABASE_URL = 'https://SEU_PROJECT_ID.supabase.co';
+const SUPABASE_ANON_KEY = 'SUA_ANON_KEY_AQUI';
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+6. Vai a **Authentication > Settings**:
+   - Ativa "Enable email confirmations"
+   - Adiciona `myinventoryapp://` aos Redirect URLs
 
-## Join the community
+7. Vai a **Database > Replication**:
+   - Certifica-te que `inventory_items` está habilitado para Realtime
 
-Join our community of developers creating universal apps.
+### 3. Configurar Cloudinary
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+1. Cria uma conta em [cloudinary.com](https://cloudinary.com)
+2. Vai a **Settings > Upload**:
+   - Cria um novo **Upload Preset** chamado `inventory_app`
+   - Configura como **Unsigned** para permitir uploads do app
+3. Edita o ficheiro `cloudinary-config.ts`:
+
+```typescript
+export const CLOUDINARY_CONFIG = {
+  cloudName: 'SEU_CLOUD_NAME',
+  apiKey: 'SUA_API_KEY',
+  apiSecret: 'SUA_API_SECRET',
+  uploadPreset: 'inventory_app',
+};
+```
+
+### 4. Configurar Google Gemini (opcional)
+
+1. Vai a [makersuite.google.com](https://makersuite.google.com)
+2. Cria uma API Key
+3. Edita os ficheiros que usam Gemini (`app/add.tsx`, `app/statistics.tsx`, `app/home.tsx`) e substitui a API key
+
+### 5. Iniciar a app
+
+```bash
+npx expo start
+```
+
+## Estrutura do Projeto
+
+```
+├── app/                    # Ecrãs da aplicação (file-based routing)
+│   ├── _layout.tsx         # Layout principal
+│   ├── index.tsx           # Página inicial (redirect)
+│   ├── home.tsx            # Dashboard
+│   ├── inventory.tsx       # Lista de inventário
+│   ├── add.tsx             # Adicionar produto
+│   ├── edit.tsx            # Editar produto
+│   ├── ...
+├── components/             # Componentes reutilizáveis
+├── services/               # Serviços (notificações, etc.)
+├── hooks/                  # Custom hooks
+├── constants/              # Constantes e temas
+├── types/                  # Definições TypeScript
+├── supabase-config.ts      # Configuração do Supabase
+├── supabase-service.ts     # Serviços Supabase
+├── supabase-listeners.ts   # Gestão de listeners
+├── supabase-schema.sql     # Schema da base de dados
+├── cloudinary-config.ts    # Configuração do Cloudinary
+├── cloudinary-service.ts   # Serviços de upload de imagens
+├── inventory-service.ts    # Serviços de inventário
+├── auth-context.tsx        # Contexto de autenticação
+└── ...
+```
+
+## Funcionalidades
+
+- ✅ Autenticação (registo, login, recuperação de password)
+- ✅ Verificação de email
+- ✅ CRUD de produtos
+- ✅ Upload de fotos de produtos
+- ✅ Classificação automática com IA (Google Gemini)
+- ✅ Leitura de códigos QR/barras
+- ✅ Gestão de categorias
+- ✅ Alertas de stock baixo
+- ✅ Notificações push
+- ✅ Modo offline com sincronização
+- ✅ Tema claro/escuro
+- ✅ Estatísticas e insights com IA
+- ✅ Exportação de dados (PDF, JSON)
+- ✅ Histórico de alterações
+
+## Licença
+
+Projeto privado.

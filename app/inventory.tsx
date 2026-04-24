@@ -21,17 +21,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import { useTheme } from "./theme-context";
 import useCustomAlert from '../hooks/useCustomAlert';
-import { db, auth } from '../firebase-config';
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  doc,
-  getDoc,
-  updateDoc,
-  serverTimestamp
-} from 'firebase/firestore';
+import { supabase } from '../supabase-config';
 import { deleteInventoryItem } from '../inventory-service';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
@@ -187,11 +177,13 @@ const updateSelectedItemsQuantity = () => {
             );
             
             const updatePromises = Array.from(selectedItems).map(async (id) => {
-              const itemRef = doc(db, 'inventory', id);
-              return updateDoc(itemRef, {
-                quantity: newQuantity.toString(),
-                updatedAt: serverTimestamp()
-              });
+              return supabase
+                .from('inventory_items')
+                .update({
+                  quantity: newQuantity.toString(),
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', id);
             });
             
             await Promise.all(updatePromises);
@@ -498,7 +490,8 @@ const fixDuplicateIds = async (items: Item[]): Promise<Item[]> => {
   
 
   // Verificar e corrigir duplicatas
-  const userId = auth.currentUser?.uid;
+  const { data: { user } } = await supabase.auth.getUser();
+  const userId = user?.id;
   const fixedItems: Item[] = [];
   
   for (const [id, duplicates] of Object.entries(itemsById)) {
@@ -514,7 +507,7 @@ const fixDuplicateIds = async (items: Item[]): Promise<Item[]> => {
         const duplicate = duplicates[i];
         totalQuantity += parseInt(duplicate.quantity.toString());
         
-        // Excluir o item duplicado do Firestore
+        // Excluir o item duplicado do Supabase
         try {
           if (duplicate.id) {
             await deleteInventoryItem(duplicate.id);
@@ -528,13 +521,16 @@ const fixDuplicateIds = async (items: Item[]): Promise<Item[]> => {
       // Atualizar a quantidade do item base
       baseItem.quantity = totalQuantity.toString();
       
-      // Atualizar o item no Firestore
+      // Atualizar o item no Supabase
       try {
         if (baseItem.id) {
-          await updateDoc(doc(db, 'inventory', baseItem.id), {
-            quantity: baseItem.quantity,
-            updatedAt: serverTimestamp()
-          });
+          await supabase
+            .from('inventory_items')
+            .update({
+              quantity: baseItem.quantity,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', baseItem.id);
           console.log(`Item base atualizado: ${baseItem.id}, nova quantidade: ${baseItem.quantity}`);
         }
       } catch (error) {
@@ -554,15 +550,18 @@ useFocusEffect(
   useCallback(() => {
     const loadUserSettings = async () => {
       try {
-        const userId = auth.currentUser?.uid;
+        const { data: { user } } = await supabase.auth.getUser();
+        const userId = user?.id;
         if (!userId) return;
         
-        const userSettingsDoc = await getDoc(doc(db, 'userSettings', userId));
-        if (userSettingsDoc.exists()) {
-          const settings = userSettingsDoc.data();
-          if (settings.globalLowStockThreshold) {
-            setGlobalLowStockThreshold(settings.globalLowStockThreshold);
-          }
+        const { data: settings, error } = await supabase
+          .from('user_settings')
+          .select('*')
+          .eq('user_id', userId)
+          .single();
+        
+        if (!error && settings?.global_low_stock_threshold) {
+          setGlobalLowStockThreshold(settings.global_low_stock_threshold);
         }
       } catch (error) {
         console.error("Erro ao carregar configurações do Utilizador:", error);
@@ -573,20 +572,34 @@ const loadItems = async () => {
   setLoading(true);
   try {
     // Verificar se o Utilizador está autenticado
-    const userId = auth.currentUser?.uid;
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id;
     if (!userId) {
       setLoading(false);
       return;
     }
 
-    // Carregar inventário do Firestore
-    const q = query(collection(db, 'inventory'), where('userId', '==', userId));
-    const snapshot = await getDocs(q);
+    // Carregar inventário do Supabase
+    const { data, error } = await supabase
+      .from('inventory_items')
+      .select('*')
+      .eq('user_id', userId);
     
-    const parsedItems: Item[] = [];
-    snapshot.forEach((doc) => {
-      parsedItems.push({ id: doc.id, ...doc.data() as Item });
-    });
+    if (error) throw error;
+    
+    const parsedItems: Item[] = (data || []).map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      quantity: item.quantity,
+      category: item.category,
+      lowStockThreshold: item.low_stock_threshold,
+      photo: item.photo,
+      photoUrl: item.photo_url,
+      description: item.description,
+      userId: item.user_id,
+      createdAt: item.created_at,
+      updatedAt: item.updated_at
+    }));
 
     // Verificar e corrigir IDs duplicados
     const fixedItems = await fixDuplicateIds(parsedItems);
@@ -626,7 +639,8 @@ const handleRemoveItem = async (itemToRemove: Item) => {
     );
     
     // Obter todos os itens com o mesmo nome e categoria
-    const userId = auth.currentUser?.uid;
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id;
     if (!userId) {
       showAlert("Erro", "Utilizador não autenticado", [
         { text: "OK", onPress: () => {} }
@@ -634,17 +648,17 @@ const handleRemoveItem = async (itemToRemove: Item) => {
       return;
     }
     
-    const q = query(
-      collection(db, 'inventory'),
-      where('userId', '==', userId),
-      where('name', '==', itemToRemove.name),
-      where('category', '==', itemToRemove.category)
-    );
+    const { data: itemsToDelete, error } = await supabase
+      .from('inventory_items')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('name', itemToRemove.name)
+      .eq('category', itemToRemove.category);
     
-    const snapshot = await getDocs(q);
+    if (error) throw error;
     
     // Deletar cada item encontrado
-    const deletePromises = snapshot.docs.map(doc => deleteInventoryItem(doc.id));
+    const deletePromises = (itemsToDelete || []).map(item => deleteInventoryItem(item.id));
     await Promise.all(deletePromises);
     
     // Atualizar a UI
@@ -690,7 +704,8 @@ const handleRemoveItem = async (itemToRemove: Item) => {
           style: "destructive",
           onPress: async () => {
             try {
-              const userId = auth.currentUser?.uid;
+              const { data: { user } } = await supabase.auth.getUser();
+              const userId = user?.id;
               if (!userId) {
                 showAlert("Erro", "Utilizador não autenticado", [
                   { text: "OK", onPress: () => {} }
@@ -699,13 +714,17 @@ const handleRemoveItem = async (itemToRemove: Item) => {
               }
               
               // Obter todos os itens do Utilizador
-              const q = query(collection(db, 'inventory'), where('userId', '==', userId));
-              const snapshot = await getDocs(q);
+              const { data: allItems, error } = await supabase
+                .from('inventory_items')
+                .select('id')
+                .eq('user_id', userId);
+              
+              if (error) throw error;
               
               // Deletar cada item individualmente
-              const deletePromises = snapshot.docs.map(async (doc) => {
+              const deletePromises = (allItems || []).map(async (item) => {
                 // Usar a função do serviço para cada item
-                await deleteInventoryItem(doc.id);
+                await deleteInventoryItem(item.id);
               });
               
               await Promise.all(deletePromises);
@@ -770,9 +789,14 @@ const filteredAndSortedItems = items
       case 'quantityDesc':
         return parseInt(b.quantity.toString()) - parseInt(a.quantity.toString());
       case 'newestFirst':
-        return b.createdAt?.toMillis() - a.createdAt?.toMillis() || 0;
+        // Supabase retorna strings ISO, converter para timestamp
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        return bTime - aTime;
       case 'oldestFirst':
-        return a.createdAt?.toMillis() - b.createdAt?.toMillis() || 0;
+        const aTimeOld = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTimeOld = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return aTimeOld - bTimeOld;
       default:
         return 0;
     }

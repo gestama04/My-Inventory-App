@@ -17,13 +17,11 @@ import { useTheme } from './theme-context';
 import { useAuth } from '../auth-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { updateProfile } from 'firebase/auth';
-import { auth, storage } from '../firebase-config';
-import { ref, uploadString, getDownloadURL } from 'firebase/storage';
-import * as FileSystem from 'expo-file-system';
+import { supabase } from '../supabase-config';
+import { uploadImageToCloudinary } from '../cloudinary-service';
+import * as FileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import useCustomAlert from '../hooks/useCustomAlert';
-import { uploadImage } from '../firebase-service';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -40,9 +38,9 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (currentUser) {
-      setDisplayName(currentUser.displayName || '');
+      setDisplayName(currentUser.user_metadata?.display_name || currentUser.user_metadata?.full_name || '');
       setEmail(currentUser.email || '');
-      setPhotoURL(currentUser.photoURL);
+      setPhotoURL(currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture || null);
     }
   }, [currentUser]);
 
@@ -104,7 +102,7 @@ export default function ProfileScreen() {
         
         // Converter para base64
         const base64 = await FileSystem.readAsStringAsync(manipResult.uri, {
-          encoding: FileSystem.EncodingType.Base64,
+          encoding: 'base64',
         });
         
         // Atualizar a UI imediatamente com a imagem local
@@ -139,13 +137,16 @@ export default function ProfileScreen() {
               setIsLoading(true);
               
               // Obter o utilizador atual
-              const user = auth.currentUser;
-              if (!user) {
+              const { data: { user }, error: userError } = await supabase.auth.getUser();
+              if (userError || !user) {
                 throw new Error('Nenhum utilizador autenticado');
               }
               
-              // Deletar o utilizador
-              await user.delete();
+              // Deletar o perfil primeiro (a conta será deletada via RLS/trigger ou Edge Function)
+              await supabase.from('profiles').delete().eq('id', user.id);
+              
+              // Fazer logout
+              await supabase.auth.signOut();
               
               showAlert(
                 'Conta Apagada',
@@ -154,7 +155,6 @@ export default function ProfileScreen() {
                   {
                     text: 'OK',
                     onPress: () => {
-                      // Redirecionar para a tela de login
                       router.replace('/login');
                     }
                   }
@@ -163,29 +163,11 @@ export default function ProfileScreen() {
             } catch (error: any) {
               console.error('Erro ao apagar conta:', error);
               
-              // Verificar se o erro é devido à necessidade de reautenticação
-              if (error.code === 'auth/requires-recent-login') {
-                showAlert(
-                  'Sessão Expirada',
-                  'Por motivos de segurança, você precisa fazer login novamente antes de apagar sua conta.',
-                  [
-                    {
-                      text: 'OK',
-                      onPress: () => {
-                        // Fazer logout e redirecionar para login
-                        logout();
-                        router.replace('/login');
-                      }
-                    }
-                  ]
-                );
-              } else {
-                showAlert(
-                  'Erro',
-                  'Não foi possível apagar sua conta. Tente novamente mais tarde.',
-                  [{ text: 'OK', onPress: () => {} }]
-                );
-              }
+              showAlert(
+                'Erro',
+                'Não foi possível apagar sua conta. Tente novamente mais tarde.',
+                [{ text: 'OK', onPress: () => {} }]
+              );
             } finally {
               setIsLoading(false);
             }
@@ -202,33 +184,34 @@ export default function ProfileScreen() {
     try {
       setIsSaving(true);
       
+      // Obter o utilizador atual do Supabase
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error('Usuário não autenticado');
+      }
+      
       // Preparar dados para atualização
-      const updateData: { displayName?: string; photoURL?: string } = {};
+      const updateData: { display_name?: string; avatar_url?: string } = {};
       
       // Atualizar nome se foi alterado
-      if (displayName !== currentUser.displayName) {
-        updateData.displayName = displayName;
+      const currentDisplayName = currentUser.user_metadata?.display_name || currentUser.user_metadata?.full_name;
+      if (displayName !== currentDisplayName) {
+        updateData.display_name = displayName;
       }
       
       // Fazer upload da foto se foi alterada e é uma string base64
-      if (photoURL && photoURL !== currentUser.photoURL && photoURL.startsWith('data:image')) {
+      const currentPhotoURL = currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture;
+      if (photoURL && photoURL !== currentPhotoURL && photoURL.startsWith('data:image')) {
         try {
-          console.log("Iniciando upload da imagem de perfil...");
+          console.log("Iniciando upload da imagem de perfil para Cloudinary...");
           
-          // Extrair a parte base64 da string
-          let base64Data = photoURL;
-          if (base64Data.includes('base64,')) {
-            base64Data = base64Data.split('base64,')[1];
-          }
+          // Usar Cloudinary para upload
+          const result = await uploadImageToCloudinary(photoURL, `profiles/${user.id}`);
           
-          // Usar a função uploadImage do firebase-service.ts
-          const path = `profile/${currentUser.uid}/profile.jpg`;
-          const downloadURL = await uploadImage(base64Data, path);
-          
-          console.log("Upload da imagem de perfil concluído, URL:", downloadURL);
+          console.log("Upload da imagem de perfil concluído, URL:", result.secure_url);
           
           // Adicionar URL ao objeto de atualização
-          updateData.photoURL = downloadURL;
+          updateData.avatar_url = result.secure_url;
         } catch (error) {
           console.error('Erro ao fazer upload da imagem:', error);
           throw new Error('Falha ao fazer upload da imagem de perfil');
@@ -239,15 +222,37 @@ export default function ProfileScreen() {
       if (Object.keys(updateData).length > 0) {
         console.log('🔄 Atualizando perfil com dados:', updateData);
         
-        // 🆕 USAR auth.currentUser DIRETAMENTE
-        if (!auth.currentUser) {
-          throw new Error('Usuário não autenticado');
+        // Atualizar user_metadata no Supabase Auth
+        const { error: authUpdateError } = await supabase.auth.updateUser({
+          data: {
+            display_name: updateData.display_name || currentDisplayName,
+            avatar_url: updateData.avatar_url || currentPhotoURL,
+          }
+        });
+        
+        if (authUpdateError) {
+          throw authUpdateError;
         }
         
-        await updateProfile(auth.currentUser, updateData);
-        console.log('✅ updateProfile concluído');
+        // Atualizar também na tabela profiles
+        const { error: profileUpdateError } = await supabase
+          .from('profiles')
+          .upsert({
+            user_id: user.id,
+            display_name: updateData.display_name || currentDisplayName,
+            avatar_url: updateData.avatar_url || currentPhotoURL,
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'user_id',
+          });
         
-        // 🆕 RECARREGAR O USUÁRIO NO CONTEXTO
+        if (profileUpdateError) {
+          console.error('Erro ao atualizar tabela profiles:', profileUpdateError);
+        }
+        
+        console.log('✅ Perfil atualizado no Supabase');
+        
+        // Recarregar o usuário no contexto
         await reloadUser();
         console.log('✅ Contexto do usuário atualizado');
         
@@ -394,8 +399,8 @@ export default function ProfileScreen() {
           setIsEditing(false);
           // Restaurar valores originais
           if (currentUser) {
-            setDisplayName(currentUser.displayName || '');
-            setPhotoURL(currentUser.photoURL);
+            setDisplayName(currentUser.user_metadata?.display_name || currentUser.user_metadata?.full_name || '');
+            setPhotoURL(currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture || null);
           }
         }}
         disabled={isSaving}

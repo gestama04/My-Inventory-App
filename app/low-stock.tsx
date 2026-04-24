@@ -19,16 +19,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useTheme } from "./theme-context";
 import useCustomAlert from '../hooks/useCustomAlert';
-import { db, auth } from '../firebase-config';
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  deleteDoc, 
-  doc, 
-  getDoc 
-} from 'firebase/firestore';
+import { supabase } from '../supabase-config';
 import { InventoryItem, addToHistory, deleteInventoryItem } from '../inventory-service';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -38,13 +29,13 @@ interface Item {
   name: string;
   quantity: string | number;
   category: string;
-  lowStockThreshold?: string;
-  userId?: string;
+  low_stock_threshold?: string;
+  user_id?: string;
   photo?: string;
   photoUrl?: string;
   description?: string;
-  createdAt?: any;
-  updatedAt?: any;
+  created_at?: string;
+  updated_at?: string;
 }
 
 type SortType = 'nameAsc' | 'nameDesc' | 'quantityAsc' | 'quantityDesc' | 'categoryAsc' | 'categoryDesc' | 'newestFirst' | 'oldestFirst';
@@ -72,28 +63,36 @@ export default function LowStockScreen() {
         setLoading(true);
         try {
           // Verificar se o Utilizador está autenticado
-          const userId = auth.currentUser?.uid;
+          const { data: { user } } = await supabase.auth.getUser();
+          const userId = user?.id;
           if (!userId) {
             setLoading(false);
             return;
           }
 
           // Carregar threshold global das configurações do Utilizador
-          const userSettingsDoc = await getDoc(doc(db, 'userSettings', userId));
-          const globalThreshold = userSettingsDoc.exists()
-            ? userSettingsDoc.data().globalLowStockThreshold || '5'
-            : '5';
+          const { data: userSettingsData } = await supabase
+            .from('user_settings')
+            .select('global_low_stock_threshold')
+            .eq('user_id', userId)
+            .single();
+          
+          const globalThreshold = userSettingsData?.global_low_stock_threshold?.toString() || '5';
           
           setGlobalLowStockThreshold(globalThreshold);
 
-          // Carregar inventário do Firestore
-          const q = query(collection(db, 'inventory'), where('userId', '==', userId));
-          const snapshot = await getDocs(q);
+          // Carregar inventário do Supabase
+          const { data: inventoryData, error } = await supabase
+            .from('inventory_items')
+            .select('*')
+            .eq('user_id', userId);
           
-          const parsedItems: Item[] = [];
-          snapshot.forEach((doc) => {
-            parsedItems.push({ id: doc.id, ...doc.data() as Item });
-          });
+          if (error) throw error;
+          
+          const parsedItems: Item[] = (inventoryData || []).map(item => ({
+            id: item.id,
+            ...item
+          }));
 
           // Primeiro, combinar itens com o mesmo nome e categoria
           const combinedItems = combineItems(parsedItems);
@@ -103,7 +102,7 @@ export default function LowStockScreen() {
           console.log("LOW-STOCK DEBUG: Itens combinados:", combinedItems.length);
           combinedItems.forEach(item => {
             const numQuantity = parseInt(item.quantity.toString());
-            const customThreshold = item.lowStockThreshold ? parseInt(item.lowStockThreshold) : null;
+            const customThreshold = item.low_stock_threshold ? parseInt(item.low_stock_threshold) : null;
             const effectiveThreshold = customThreshold || parseInt(globalThreshold);
             console.log(`LOW-STOCK DEBUG: Item: ${item.name}, Quantidade: ${numQuantity}, Threshold: ${effectiveThreshold}, Custom: ${customThreshold !== null}`);
             
@@ -122,8 +121,8 @@ export default function LowStockScreen() {
             const numQuantity = parseInt(item.quantity.toString());
             
             // Verificar se o item tem um threshold personalizado
-            if (item.lowStockThreshold !== undefined && item.lowStockThreshold !== "") {
-              const itemThreshold = parseInt(item.lowStockThreshold);
+            if (item.low_stock_threshold !== undefined && item.low_stock_threshold !== "") {
+              const itemThreshold = parseInt(item.low_stock_threshold);
               // Só considerar como estoque baixo se o threshold personalizado for maior que 0
               if (!isNaN(itemThreshold) && itemThreshold > 0) {
                 return numQuantity > 0 && numQuantity <= itemThreshold;
@@ -248,8 +247,8 @@ export default function LowStockScreen() {
         combinedItems[key].quantity = (parseInt(combinedItems[key].quantity.toString()) + parseInt(item.quantity.toString())).toString();
         
         // Preservar threshold personalizado se existir
-        if (!combinedItems[key].lowStockThreshold && item.lowStockThreshold) {
-          combinedItems[key].lowStockThreshold = item.lowStockThreshold;
+        if (!combinedItems[key].low_stock_threshold && item.low_stock_threshold) {
+          combinedItems[key].low_stock_threshold = item.low_stock_threshold;
         }
         
         // Preservar foto se existir
@@ -280,9 +279,9 @@ export default function LowStockScreen() {
       case 'categoryDesc':
         return itemsToSort.sort((a, b) => b.category.localeCompare(a.category) || a.name.localeCompare(b.name));
       case 'newestFirst':
-        return itemsToSort.sort((a, b) => b.createdAt?.toMillis() - a.createdAt?.toMillis() || 0);
+        return itemsToSort.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime() || 0);
       case 'oldestFirst':
-        return itemsToSort.sort((a, b) => a.createdAt?.toMillis() - b.createdAt?.toMillis() || 0);
+        return itemsToSort.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime() || 0);
       default:
         return itemsToSort;
     }
@@ -346,7 +345,8 @@ export default function LowStockScreen() {
   const handleRemoveItem = async (itemToRemove: Item) => {
     try {
       // Verificar se o Utilizador está autenticado
-      const userId = auth.currentUser?.uid;
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id;
       if (!userId) {
         showAlert("Erro", "Você precisa estar autenticado para remover itens.", [
           { text: "OK", onPress: () => {} }

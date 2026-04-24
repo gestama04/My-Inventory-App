@@ -19,17 +19,16 @@ import { useTheme } from './theme-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import useCustomAlert from '../hooks/useCustomAlert';
 import { Camera, CameraView, useCameraPermissions } from 'expo-camera';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { CategoryIconService } from '../services/category-icon-service'; // << IMPORTAR O SERVIÇO
 import QRCode from 'react-native-qrcode-svg';
-// Firebase imports
-import { db, auth, storage } from '../firebase-config';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+// Supabase imports
+import { supabase } from '../supabase-config';
+import { uploadImageToCloudinary } from '../cloudinary-service';
 import { getInventoryItem, updateInventoryItem } from '../inventory-service';
-import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 
 interface Item {
   id?: string;
@@ -39,18 +38,20 @@ interface Item {
   lowStockThreshold?: string;
   photo?: string;
   photoUrl?: string;
+  photo_url?: string;
   description?: string;
   userId?: string;
+  user_id?: string;
   createdAt?: any; // Timestamp do Firestore
   updatedAt?: any; // Timestamp do Firestore
 }
 
-const genAI = new GoogleGenerativeAI("*colocar a sua api key*");
+const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY as string);
 
 // Função para gerar descrição apenas com texto (fallback)
 const generateDescription = async (name: string, category: string): Promise<string> => {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
     const prompt = `
       Crie uma descrição detalhada para um item de inventário com as seguintes características:
@@ -82,7 +83,7 @@ const generateDescriptionFromImage = async (
   category: string): Promise<string> => {
   try {
     // Usar o modelo multimodal que suporta imagens
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
     // Preparar a imagem para o prompt
     let base64Data = imageBase64;
@@ -329,7 +330,7 @@ const PhotoEditor = memo(({
       
       // Converter para base64
       const base64 = await FileSystem.readAsStringAsync(manipResult.uri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
       
       // Salvar a foto
@@ -378,7 +379,7 @@ const PhotoEditor = memo(({
         
         // Converter para base64
         const base64 = await FileSystem.readAsStringAsync(manipResult.uri, {
-          encoding: FileSystem.EncodingType.Base64,
+          encoding: 'base64',
         });
         
         // Salvar a foto
@@ -546,7 +547,7 @@ const QRCodeModal = memo(({
       quantity: item.quantity?.toString() || '1',
       // 🚫 NÃO incluir photo (base64 muito grande)
       // 🆕 Incluir apenas um indicador se tem foto
-      hasPhoto: !!(item.photo || item.photoUrl)
+      hasPhoto: !!(item.photo || item.photoUrl || item.photo_url)
     };
     
     return JSON.stringify(qrData);
@@ -627,16 +628,25 @@ export default function ItemDetailsScreen() {
   const formatDate = useCallback((timestamp: any) => {
     if (!timestamp) return "Data desconhecida";
     
+    let date: Date;
+    
     // Se for um timestamp do Firestore
     if (timestamp.toDate) {
-      timestamp = timestamp.toDate();
+      date = timestamp.toDate();
     } else if (typeof timestamp === 'number') {
       // Se for um timestamp em milissegundos
-      timestamp = new Date(timestamp);
+      date = new Date(timestamp);
+    } else if (typeof timestamp === 'string') {
+      // Se for uma string ISO (Supabase)
+      date = new Date(timestamp);
+    } else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else {
+      return "Data desconhecida";
     }
     
     // Formatar a data
-    return timestamp.toLocaleDateString('pt-PT', {
+    return date.toLocaleDateString('pt-PT', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -756,8 +766,17 @@ useEffect(() => {
         cleanBase64 = cleanBase64.split(',')[1];
       }
       
-      // Usar o serviço de inventário para atualizar a foto
-      await updateInventoryItem(item.id, {}, cleanBase64);
+      // Upload para Cloudinary
+      const cloudinaryResult = await uploadImageToCloudinary(cleanBase64, 'inventory');
+      const photoUrl = cloudinaryResult.secure_url;
+      
+      // Atualizar no Supabase
+      const { error } = await supabase
+        .from('inventory_items')
+        .update({ photo_url: photoUrl })
+        .eq('id', item.id);
+      
+      if (error) throw error;
       
       // Atualizar o estado local imediatamente com a nova foto
       setItem(prevItem => {
@@ -765,19 +784,36 @@ useEffect(() => {
         return {
           ...prevItem,
           photo: cleanBase64,
-          photoUrl: prevItem.photoUrl // Manter a URL existente até que o servidor atualize
+          photoUrl: photoUrl,
+          photo_url: photoUrl
         };
       });
       
       setIsEditingPhoto(false);
       
-      // Recarregar o item do Firestore para obter a URL atualizada
+      // Recarregar o item do Supabase para obter os dados atualizados
       if (item.id) {
-        const docRef = doc(db, 'inventory', item.id);
-        const docSnap = await getDoc(docRef);
+        const { data, error: fetchError } = await supabase
+          .from('inventory_items')
+          .select('*')
+          .eq('id', item.id)
+          .single();
         
-        if (docSnap.exists()) {
-          const updatedItem = { id: docSnap.id, ...docSnap.data() } as Item;
+        if (!fetchError && data) {
+          const updatedItem: Item = {
+            id: data.id,
+            name: data.name,
+            quantity: data.quantity,
+            category: data.category,
+            lowStockThreshold: data.low_stock_threshold,
+            photoUrl: data.photo_url,
+            photo_url: data.photo_url,
+            description: data.description,
+            userId: data.user_id,
+            user_id: data.user_id,
+            createdAt: data.created_at,
+            updatedAt: data.updated_at
+          };
           setItem(updatedItem);
         }
       }
@@ -811,12 +847,14 @@ useEffect(() => {
             // Show loading indicator
             showAlert("A processar", "A remover foto...", []);
             
-            // Update Firestore document
+            // Update Supabase document
             if (item.id) {
-              await updateDoc(doc(db, 'inventory', item.id), {
-                photoUrl: null,
-                photo: null
-              });
+              const { error } = await supabase
+                .from('inventory_items')
+                .update({ photo_url: null })
+                .eq('id', item.id);
+              
+              if (error) throw error;
             }
             
             // Update local state immediately
@@ -825,17 +863,34 @@ useEffect(() => {
               return {
                 ...prevItem,
                 photoUrl: "",
+                photo_url: "",
                 photo: undefined
               };
             });
             
-            // Reload the item from Firestore to ensure consistency
+            // Reload the item from Supabase to ensure consistency
             if (item.id) {
-              const docRef = doc(db, 'inventory', item.id);
-              const docSnap = await getDoc(docRef);
+              const { data, error: fetchError } = await supabase
+                .from('inventory_items')
+                .select('*')
+                .eq('id', item.id)
+                .single();
               
-              if (docSnap.exists()) {
-                const updatedItem = { id: docSnap.id, ...docSnap.data() } as Item;
+              if (!fetchError && data) {
+                const updatedItem: Item = {
+                  id: data.id,
+                  name: data.name,
+                  quantity: data.quantity,
+                  category: data.category,
+                  lowStockThreshold: data.low_stock_threshold,
+                  photoUrl: data.photo_url,
+                  photo_url: data.photo_url,
+                  description: data.description,
+                  userId: data.user_id,
+                  user_id: data.user_id,
+                  createdAt: data.created_at,
+                  updatedAt: data.updated_at
+                };
                 setItem(updatedItem);
               }
             }
@@ -935,10 +990,10 @@ useEffect(() => {
 
         {/* Imagem do item ou placeholder */}
         <View style={styles.imageContainer}>
-          {item.photoUrl || item.photo ? (
+          {item.photoUrl || item.photo_url || item.photo ? (
             <>
       <Image
-        source={{ uri: item.photoUrl || (item.photo ? `data:image/jpeg;base64,${item.photo}` : undefined) }}
+        source={{ uri: item.photoUrl || item.photo_url || (item.photo ? `data:image/jpeg;base64,${item.photo}` : undefined) }}
         style={styles.itemImage}
         resizeMode="contain"
       />
@@ -1163,7 +1218,7 @@ useEffect(() => {
     onCancel={cancelEditingPhoto}
     onDelete={removePhoto}
     theme={currentTheme}
-    hasExistingPhoto={!!(item.photoUrl || item.photo)}
+    hasExistingPhoto={!!(item.photoUrl || item.photo_url || item.photo)}
   />
 )}
 {showQRCode && (

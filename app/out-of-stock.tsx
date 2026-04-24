@@ -19,15 +19,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useTheme } from "./theme-context";
 import useCustomAlert from '../hooks/useCustomAlert';
-import { db, auth } from '../firebase-config';
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  doc, 
-  getDoc 
-} from 'firebase/firestore';
+import { supabase } from '../supabase-config';
 import { InventoryItem, addToHistory, deleteInventoryItem } from '../inventory-service';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -70,20 +62,33 @@ export default function OutOfStockScreen() {
         setLoading(true);
         try {
           // Verificar se o Utilizador está autenticado
-          const userId = auth.currentUser?.uid;
-          if (!userId) {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) {
             setLoading(false);
             return;
           }
 
-          // Carregar inventário do Firestore
-          const q = query(collection(db, 'inventory'), where('userId', '==', userId));
-          const snapshot = await getDocs(q);
+          // Carregar inventário do Supabase
+          const { data, error } = await supabase
+            .from('inventory_items')
+            .select('*')
+            .eq('user_id', user.id);
           
-          const parsedItems: Item[] = [];
-          snapshot.forEach((doc) => {
-            parsedItems.push({ id: doc.id, ...doc.data() as Item });
-          });
+          if (error) throw error;
+          
+          const parsedItems: Item[] = (data || []).map(item => ({
+            id: item.id,
+            name: item.name,
+            quantity: item.quantity,
+            category: item.category,
+            lowStockThreshold: item.low_stock_threshold,
+            userId: item.user_id,
+            photo: item.photo,
+            photoUrl: item.photo_url,
+            description: item.description,
+            createdAt: item.created_at ? new Date(item.created_at) : null,
+            updatedAt: item.updated_at ? new Date(item.updated_at) : null,
+          }));
 
           // Combinar itens com o mesmo nome e categoria
           const combinedItems = combineItems(parsedItems);
@@ -231,9 +236,9 @@ export default function OutOfStockScreen() {
       case 'categoryDesc':
         return itemsToSort.sort((a, b) => b.category.localeCompare(a.category) || a.name.localeCompare(b.name));
       case 'newestFirst':
-        return itemsToSort.sort((a, b) => b.createdAt?.toMillis() - a.createdAt?.toMillis() || 0);
+        return itemsToSort.sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
       case 'oldestFirst':
-        return itemsToSort.sort((a, b) => a.createdAt?.toMillis() - b.createdAt?.toMillis() || 0);
+        return itemsToSort.sort((a, b) => (a.createdAt?.getTime() || 0) - (b.createdAt?.getTime() || 0));
       default:
         return itemsToSort;
     }
@@ -295,7 +300,8 @@ export default function OutOfStockScreen() {
   const handleRemoveItem = async (itemToRemove: Item) => {
     try {
       // Verificar se o Utilizador está autenticado
-      const userId = auth.currentUser?.uid;
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id;
       if (!userId) {
         showAlert("Erro", "Você precisa estar autenticado para remover itens.", [
           { text: "OK", onPress: () => {} }

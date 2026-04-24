@@ -43,8 +43,8 @@ export default function Index() {
     console.log('📝 Setup concluído - indo para home');
     try {
       if (currentUser) {
-        await AsyncStorage.setItem(`hasCompletedSetup_${currentUser.uid}`, 'true');
-        console.log(`✅ Setup marcado como completo para ${currentUser.uid}`);
+        await AsyncStorage.setItem(`hasCompletedSetup_${currentUser.id}`, 'true');
+        console.log(`✅ Setup marcado como completo para ${currentUser.id}`);
       }
       setShowInitialSetup(false);
       setIsProcessing(false);
@@ -92,9 +92,9 @@ export default function Index() {
         }
 
         // PASSO 3: Se está logado, verificar se já fez setup
-        const setupKey = `hasCompletedSetup_${currentUser.uid}`;
+        const setupKey = `hasCompletedSetup_${currentUser.id}`;
         const hasCompletedSetup = await AsyncStorage.getItem(setupKey);
-        console.log('🔧 Já fez setup?', !!hasCompletedSetup, 'para user:', currentUser.uid);
+        console.log('🔧 Já fez setup?', !!hasCompletedSetup, 'para user:', currentUser.id);
 
         if (!hasCompletedSetup) {
           console.log('🎯 MOSTRAR SETUP (primeira vez após login)');
@@ -139,23 +139,9 @@ export default function Index() {
     return <InitialSetupScreen onComplete={handleSetupComplete} />;
   }
 
-  // Loading (enquanto processa ou aguarda)
-  if (loading || isProcessing || showWelcome === null || showInitialSetup === null) {
-    console.log('🎨 → LOADING');
-    return (
-      <View style={{
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#3498db'
-      }}>
-        <ActivityIndicator size="large" color="#FFFFFF" />
-      </View>
-    );
-  }
-
-  // Fallback (não deveria acontecer)
-  console.log('🎨 → FALLBACK LOADING');
+  // Sempre mostrar loading enquanto processa ou estados não estão definidos
+  // Isto previne o "fallback" e dá tempo para navegação completar
+  console.log('🎨 → LOADING');
   return (
     <View style={{
       flex: 1,

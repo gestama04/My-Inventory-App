@@ -15,16 +15,7 @@ import { useRouter } from "expo-router";
 import { useTheme } from "./theme-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import useCustomAlert from '../hooks/useCustomAlert';
-import { db, auth } from '../firebase-config';
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  deleteDoc, 
-  doc,
-  writeBatch
-} from 'firebase/firestore';
+import { supabase } from '../supabase-config';
 import { addToHistory } from '../inventory-service';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -78,21 +69,29 @@ useEffect(() => {
 const loadCategories = async () => {
   try {
     // Verificar se o Utilizador está autenticado
-    const userId = auth.currentUser?.uid;
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id;
     if (!userId) {
       setLoading(false);
       return;
     }
     
-    // Buscar itens do Firestore
-    const q = query(collection(db, 'inventory'), where('userId', '==', userId));
-    const snapshot = await getDocs(q);
+    // Buscar itens do Supabase
+    const { data: items, error } = await supabase
+      .from('inventory_items')
+      .select('*')
+      .eq('user_id', userId);
+    
+    if (error) {
+      console.error("Erro ao buscar itens:", error);
+      setLoading(false);
+      return;
+    }
     
     // Contar itens por categoria e somar as quantidades
     const categoryCounts: Record<string, number> = {};
     
-    snapshot.forEach((doc) => {
-      const item = doc.data();
+    (items || []).forEach((item) => {
       const category = item.category || "Sem Categoria";
       const quantity = item.quantity ? parseInt(item.quantity) : 1;
       
@@ -176,7 +175,8 @@ const loadCategories = async () => {
           onPress: async () => {
             try {
               // Verificar se o Utilizador está autenticado
-              const userId = auth.currentUser?.uid;
+              const { data: { user } } = await supabase.auth.getUser();
+              const userId = user?.id;
               if (!userId) {
                 showAlert("Erro", "Você precisa estar autenticado para apagar categorias.", [
                   { text: "OK", onPress: () => {} }
@@ -185,37 +185,44 @@ const loadCategories = async () => {
               }
               
               // Buscar todos os itens da categoria
-              const q = query(
-                collection(db, 'inventory'), 
-                where('userId', '==', userId),
-                where('category', '==', category)
-              );
+              const { data: items, error: fetchError } = await supabase
+                .from('inventory_items')
+                .select('*')
+                .eq('user_id', userId)
+                .eq('category', category);
               
-              const snapshot = await getDocs(q);
+              if (fetchError) {
+                console.error("Erro ao buscar itens:", fetchError);
+                showAlert("Erro", "Não foi possível buscar os itens da categoria.", [
+                  { text: "OK", onPress: () => {} }
+                ]);
+                return;
+              }
               
-              if (snapshot.empty) {
+              if (!items || items.length === 0) {
                 showAlert("Aviso", "Não foram encontrados itens nesta categoria.", [
                   { text: "OK", onPress: () => {} }
                 ]);
                 return;
               }
               
-              // Usar batch para deletar múltiplos documentos de uma vez
-              const batch = writeBatch(db);
-              
               // Adicionar cada item ao histórico antes de deletar
-              const deletedItems: InventoryItem[] = [];
-
-              snapshot.forEach((document) => {
-                const item = document.data() as InventoryItem;
-                deletedItems.push(item);
+              const deletedItems: InventoryItem[] = items as InventoryItem[];
               
-              // Adicionar ao batch para deletar
-              batch.delete(doc(db, 'inventory', document.id));
-              });
+              // Deletar todos os itens da categoria
+              const { error: deleteError } = await supabase
+                .from('inventory_items')
+                .delete()
+                .eq('user_id', userId)
+                .eq('category', category);
               
-              // Executar o batch
-              await batch.commit();
+              if (deleteError) {
+                console.error("Erro ao deletar itens:", deleteError);
+                showAlert("Erro", "Não foi possível apagar a categoria.", [
+                  { text: "OK", onPress: () => {} }
+                ]);
+                return;
+              }
               
               // Adicionar ao histórico
               for (const item of deletedItems) {

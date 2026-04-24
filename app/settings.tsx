@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Switch } from "react-native";
 import { useTheme } from "./theme-context";
 import { useRouter } from "expo-router";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
@@ -10,7 +10,8 @@ import { Linking } from "react-native";
 import useCustomAlert from '../hooks/useCustomAlert';
 import { useAuth } from '../auth-context';
 
-// Firebase imports
+// Supabase imports
+import { supabase } from '../supabase-config';
 import { 
   getInventoryItems, 
   getItemHistory, 
@@ -19,8 +20,6 @@ import {
   addToHistory,
   addInventoryItem
 } from '../inventory-service';
-import { db, auth } from '../firebase-config';
-import { collection, writeBatch, query, where, getDocs, deleteDoc, doc, getDoc, setDoc,updateDoc, serverTimestamp } from 'firebase/firestore';
 
 interface Item {
   id?: string;
@@ -62,7 +61,7 @@ export default function SettingsScreen() {
   };
 
   const openEmail = () => {
-    Linking.openURL('mailto:pv26632@estgl.ipv.pt');
+    Linking.openURL('mailto:benigestama@gmail.com');
   };
   
   const openInstagram = () => {
@@ -128,7 +127,7 @@ const combineInventoryItems = (items: Item[]): Item[] => {
   return Object.values(combinedItems);
 };
 
-// Modificado para usar Firebase
+// Modificado para usar Supabase
 useEffect(() => {
   const loadData = async () => {
     try {
@@ -139,27 +138,42 @@ useEffect(() => {
       }
       setLoading(true);
       
-      // Carregar inventário do Firebase
+      // Obter utilizador do Supabase
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log("Utilizador não autenticado no Supabase");
+        setLoading(false);
+        return;
+      }
+      
+      // Carregar inventário do Supabase
       const unsubscribe = getInventoryItems((items) => {
         // Combine items with the same name and category
         const combinedItems = combineInventoryItems(items);
         setInventory(combinedItems);
       });
       
-      // Carregar configurações do Utilizador diretamente do Firestore
+      // Carregar configurações do Utilizador diretamente do Supabase
       try {
         console.log("Carregando configurações do Utilizador...");
         
-        // Tentar obter diretamente do documento do Utilizador
-        const userSettingsDoc = await getDoc(doc(db, 'userSettings', currentUser.uid));
+        // Tentar obter diretamente da tabela user_settings
+        const { data: settingsData, error: settingsError } = await supabase
+          .from('user_settings')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
         
-        if (userSettingsDoc.exists()) {
-          const settings = userSettingsDoc.data();
-          console.log("Configurações carregadas do Firestore:", settings);
+        if (settingsError && settingsError.code !== 'PGRST116') {
+          throw settingsError;
+        }
+        
+        if (settingsData) {
+          console.log("Configurações carregadas do Supabase:", settingsData);
           
-          if (settings.globalLowStockThreshold !== undefined) {
-            console.log("Definindo threshold global para:", settings.globalLowStockThreshold);
-            setGlobalThreshold(settings.globalLowStockThreshold);
+          if (settingsData.global_low_stock_threshold !== undefined) {
+            console.log("Definindo threshold global para:", settingsData.global_low_stock_threshold);
+            setGlobalThreshold(settingsData.global_low_stock_threshold);
           } else {
             console.log("Threshold global não encontrado, usando padrão: 5");
             setGlobalThreshold("5");
@@ -169,12 +183,16 @@ useEffect(() => {
           setGlobalThreshold("5");
           
           // Criar configurações padrão
-          await setDoc(doc(db, 'userSettings', currentUser.uid), {
-            globalLowStockThreshold: "5",
-            userId: currentUser.uid,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-          });
+          const { error: insertError } = await supabase
+            .from('user_settings')
+            .insert({
+              user_id: user.id,
+              global_low_stock_threshold: "5"
+            });
+          
+          if (insertError) {
+            console.error("Erro ao criar configurações padrão:", insertError);
+          }
         }
       } catch (settingsError) {
         console.error("Erro ao carregar configurações:", settingsError);
@@ -196,7 +214,7 @@ useEffect(() => {
       setLoading(false);
       
       // Limpar o listener quando o componente for desmontado
- return () => {
+      return () => {
         if (typeof unsubscribe === 'function') {
           unsubscribe();
         }
@@ -211,7 +229,7 @@ useEffect(() => {
 }, [currentUser]);
 
 
-  // Limpar histórico - modificado para Firebase
+  // Limpar histórico - modificado para Supabase
   const clearItemHistory = async () => {
     if (!currentUser) {
       showAlert("Erro", "Utilizador não autenticado", [
@@ -230,14 +248,19 @@ useEffect(() => {
           style: "destructive",
           onPress: async () => {
             try {
-              // Obter referência para todos os documentos de histórico do Utilizador
-              const historyRef = collection(db, 'itemHistory');
-              const q = query(historyRef, where('userId', '==', currentUser.uid));
-              const snapshot = await getDocs(q);
+              // Obter utilizador do Supabase
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) {
+                throw new Error("Utilizador não autenticado");
+              }
               
-              // Excluir cada documento
-              const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
-              await Promise.all(deletePromises);
+              // Excluir todos os registos de histórico do utilizador
+              const { error } = await supabase
+                .from('item_history')
+                .delete()
+                .eq('user_id', user.id);
+              
+              if (error) throw error;
               
               // Atualizar o estado
               setItemHistory([]);
@@ -274,22 +297,31 @@ useEffect(() => {
     }
     
     try {
+      // Obter utilizador do Supabase
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error("Utilizador não autenticado");
+      }
+      
       // Garante que o valor é um inteiro positivo válido
       const validatedThreshold = validatePositiveInteger(globalThreshold);
       console.log("Salvando threshold global:", validatedThreshold);
       setGlobalThreshold(validatedThreshold); // Atualiza o estado com o valor validado
       
-      // Salvar diretamente no documento do Utilizador
+      // Salvar diretamente na tabela user_settings usando upsert
       try {
-        await setDoc(doc(db, 'userSettings', currentUser.uid), {
-          globalLowStockThreshold: validatedThreshold,
-          userId: currentUser.uid,
-          updatedAt: serverTimestamp()
-        }, { merge: true }); // Usar merge: true para não sobrescrever outros campos
+        const { error: upsertError } = await supabase
+          .from('user_settings')
+          .upsert({
+            user_id: user.id,
+            global_low_stock_threshold: validatedThreshold
+          }, { onConflict: 'user_id' });
         
-        console.log("Threshold global salvo diretamente no Firestore:", validatedThreshold);
-      } catch (firestoreError) {
-        console.error("Erro ao salvar diretamente no Firestore:", firestoreError);
+        if (upsertError) throw upsertError;
+        
+        console.log("Threshold global salvo diretamente no Supabase:", validatedThreshold);
+      } catch (supabaseError) {
+        console.error("Erro ao salvar diretamente no Supabase:", supabaseError);
         
         // Tentar salvar usando a função existente como fallback
         await saveUserSettings({
@@ -312,29 +344,29 @@ useEffect(() => {
   
   
 
-  // Atualizar limite para um item específico - modificado para Firebase
+  // Atualizar limite para um item específico - modificado para Supabase
 
 const updateItemThreshold = async (index: number, newThresholdValue: string | undefined) => {
   const itemToUpdate = inventory[index];
   if (!currentUser || !itemToUpdate || !itemToUpdate.id) {
-    showAlert("Erro", "Não foi possível atualizar o item", [
-      { text: "OK", onPress: () => {} }
-    ]);
+    showAlert("Erro", "Não foi possível atualizar o item", [{ text: "OK", onPress: () => {} }]);
     return;
   }
 
   const itemId = itemToUpdate.id;
-  const itemRef = doc(db, 'inventory', itemId);
 
   try {
-    // Se o valor for undefined ou string vazia, remover o threshold personalizado
     if (newThresholdValue === undefined || newThresholdValue === '') {
-      await updateDoc(itemRef, { 
-        lowStockThreshold: null, 
-        updatedAt: serverTimestamp() 
-      });
+      const { error } = await supabase
+        .from('inventory_items')
+        .update({ 
+          low_stock_threshold: null, 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', itemId);
       
-      // Atualizar o estado local
+      if (error) throw error;
+      
       setInventory(prevInventory => 
         prevInventory.map((item, i) => {
           if (i === index) {
@@ -345,29 +377,27 @@ const updateItemThreshold = async (index: number, newThresholdValue: string | un
           return item;
         })
       );
-      
-      console.log(`Threshold personalizado removido para ${itemToUpdate.name}`);
     } else {
-      // Definir ou atualizar o threshold personalizado (incluindo zero)
-      await updateDoc(itemRef, { 
-        lowStockThreshold: newThresholdValue, 
-        updatedAt: serverTimestamp() 
-      });
+      // CORREÇÃO: parseInt() força o texto a virar um Número para o Supabase não crashar!
+      const { error } = await supabase
+        .from('inventory_items')
+        .update({ 
+          low_stock_threshold: parseInt(newThresholdValue, 10), 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', itemId);
       
-      // Atualizar o estado local
+      if (error) throw error;
+      
       setInventory(prevInventory => 
         prevInventory.map((item, i) => 
           i === index ? { ...item, lowStockThreshold: newThresholdValue } : item
         )
       );
-      
-      console.log(`Threshold personalizado definido para ${itemToUpdate.name}: ${newThresholdValue}`);
     }
   } catch (error) {
     console.error("Erro ao atualizar threshold do item:", error);
-    showAlert("Erro", "Não foi possível atualizar o threshold do item", [
-      { text: "OK", onPress: () => {} }
-    ]);
+    showAlert("Erro", "Não foi possível atualizar o threshold do item", [{ text: "OK", onPress: () => {} }]);
   }
 };
 
@@ -504,12 +534,9 @@ const updateItemThreshold = async (index: number, newThresholdValue: string | un
     );
   };
 
-// Função auxiliar para processar a importação com tipos adequados
+// Função auxiliar para processar a importação com tipos adequados - modificado para Supabase
 const processImport = async (parsedData: any[], userId: string) => {
   try {
-    const itemsCollectionRef = collection(db, 'inventory');
-    const historyCollectionRef = collection(db, 'itemHistory');
-    
     // Constantes para controlo de lotes
     const MAX_ITEMS_PER_BATCH = 20; // Reduzido para evitar sobrecarga
     const MAX_BASE64_SIZE = 600 * 1024; // 100KB máximo para fotos base64
@@ -519,17 +546,17 @@ const processImport = async (parsedData: any[], userId: string) => {
     
     // Processar em pequenos lotes
     for (let batchIndex = 0; batchIndex < parsedData.length; batchIndex += MAX_ITEMS_PER_BATCH) {
-      let currentBatch = writeBatch(db);
-      let operationsInCurrentBatch = 0;
-      
       // Processar um lote de itens
       const endIndex = Math.min(batchIndex + MAX_ITEMS_PER_BATCH, parsedData.length);
+      
+      const itemsToInsert: any[] = [];
+      const historyToInsert: any[] = [];
       
       for (let i = batchIndex; i < endIndex; i++) {
         const itemDataFromFile = parsedData[i];
         
         // Remover campos que não devem ser importados diretamente
-        const { id, userId: oldUserId, createdAt, updatedAt, ...importableData } = itemDataFromFile;
+        const { id, userId: oldUserId, user_id: oldUserIdSnake, createdAt, created_at, updatedAt, updated_at, ...importableData } = itemDataFromFile;
         
         // Verificar e limitar tamanho da foto base64
         let photoData = importableData.photo;
@@ -539,37 +566,51 @@ const processImport = async (parsedData: any[], userId: string) => {
           skippedPhotos++;
         }
         
-        const newItemDocRef = doc(itemsCollectionRef);
-        
         const newItemPayload = {
-          ...importableData,
+          name: importableData.name,
           quantity: importableData.quantity?.toString() || "0",
+          category: importableData.category || null,
+          description: importableData.description || null,
           photo: photoData,
-          photoUrl: importableData.photoUrl || null,
-          userId: userId,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
+          photo_url: importableData.photoUrl || importableData.photo_url || null,
+          low_stock_threshold: importableData.lowStockThreshold || importableData.low_stock_threshold || null,
+          user_id: userId
         };
         
-        currentBatch.set(newItemDocRef, newItemPayload);
-        operationsInCurrentBatch++;
-        
-        // Adicionar entrada de histórico
-        const newHistoryDocRef = doc(historyCollectionRef);
-        currentBatch.set(newHistoryDocRef, {
-          name: importableData.name || "Produto Importado",
-          category: importableData.category || "Importado",
-          quantity: newItemPayload.quantity,
-          action: 'add',
-          timestamp: serverTimestamp(),
-          userId: userId,
-          itemId: newItemDocRef.id
-        });
-        operationsInCurrentBatch++;
+        itemsToInsert.push(newItemPayload);
       }
       
-      // Enviar o lote atual
-      await currentBatch.commit();
+      // Inserir itens em lote
+      const { data: insertedItems, error: insertError } = await supabase
+        .from('inventory_items')
+        .insert(itemsToInsert)
+        .select();
+      
+      if (insertError) throw insertError;
+      
+      // Adicionar entradas de histórico para cada item inserido
+      if (insertedItems) {
+        for (const item of insertedItems) {
+          historyToInsert.push({
+            name: item.name || "Produto Importado",
+            category: item.category || "Importado",
+            quantity: item.quantity,
+            action: 'add',
+            user_id: userId,
+            item_id: item.id
+          });
+        }
+        
+        // Inserir histórico em lote
+        const { error: historyError } = await supabase
+          .from('item_history')
+          .insert(historyToInsert);
+        
+        if (historyError) {
+          console.error("Erro ao inserir histórico:", historyError);
+        }
+      }
+      
       importedCount += (endIndex - batchIndex);
       
       // Atualizar o alerta de progresso
@@ -606,7 +647,7 @@ const processImport = async (parsedData: any[], userId: string) => {
   }
 };
 
-  // Resetar inventário - modificado para Firebase
+  // Resetar inventário - modificado para Supabase
   const resetInventory = async () => {
     if (!currentUser) {
       showAlert("Erro", "Utilizador não autenticado", [
@@ -625,14 +666,19 @@ const processImport = async (parsedData: any[], userId: string) => {
           style: "destructive",
           onPress: async () => {
             try {
-              // Obter referência para todos os documentos de inventário do Utilizador
-              const inventoryRef = collection(db, 'inventory');
-              const q = query(inventoryRef, where('userId', '==', currentUser.uid));
-              const snapshot = await getDocs(q);
+              // Obter utilizador do Supabase
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) {
+                throw new Error("Utilizador não autenticado");
+              }
               
-              // Excluir cada documento
-              const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
-              await Promise.all(deletePromises);
+              // Excluir todos os itens de inventário do utilizador
+              const { error } = await supabase
+                .from('inventory_items')
+                .delete()
+                .eq('user_id', user.id);
+              
+              if (error) throw error;
               
               // Atualizar o estado
               setInventory([]);
