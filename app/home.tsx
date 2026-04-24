@@ -495,6 +495,19 @@ Gerado pela app My Inventory 📱`;
         </View>
       )}
     </TouchableOpacity>
+    <TouchableOpacity
+  style={{
+    backgroundColor: '#22c55e',
+    padding: 16,
+    borderRadius: 12,
+    marginVertical: 10,
+  }}
+  onPress={() => router.push('/supplements')}
+>
+  <Text style={{ color: 'white', fontWeight: 'bold', textAlign: 'center' }}>
+    Abrir VitaStreak
+  </Text>
+</TouchableOpacity>
     <View style={styles.logoContainer}>
   <Ionicons 
     name="cube" 
