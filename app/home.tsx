@@ -508,6 +508,21 @@ Gerado pela app My Inventory 📱`;
     Abrir VitaStreak
   </Text>
 </TouchableOpacity>
+
+<TouchableOpacity
+  style={{
+    backgroundColor: '#7c3aed',
+    padding: 16,
+    borderRadius: 12,
+    marginVertical: 10,
+  }}
+  onPress={() => router.push('/today' as any)}
+>
+  <Text style={{ color: 'white', fontWeight: 'bold', textAlign: 'center' }}>
+    Hoje - VitaStreak
+  </Text>
+</TouchableOpacity>
+
     <View style={styles.logoContainer}>
   <Ionicons 
     name="cube" 

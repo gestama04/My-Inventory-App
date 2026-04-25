@@ -14,27 +14,28 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons } from '@expo/vector-icons'
 
 import {
-  deleteSupplement,
-  getSupplements,
+  getTodaySupplements,
+  markSupplementTaken,
+  TodaySupplement,
+  unmarkSupplementTaken,
 } from '../services/supplements/supplement-service'
-import { Supplement } from '../types/supplements/supplement'
 import useCustomAlert from '../hooks/useCustomAlert'
 
-export default function SupplementsScreen() {
+export default function TodayScreen() {
   const router = useRouter()
   const { showAlert, AlertComponent } = useCustomAlert()
 
-  const [supplements, setSupplements] = useState<Supplement[]>([])
+  const [items, setItems] = useState<TodaySupplement[]>([])
   const [loading, setLoading] = useState(true)
 
-  const loadSupplements = async () => {
+  const loadToday = async () => {
     try {
       setLoading(true)
-      const data = await getSupplements()
-      setSupplements(data)
+      const data = await getTodaySupplements()
+      setItems(data)
     } catch (error) {
-      console.error('Erro ao carregar suplementos:', error)
-      showAlert('Erro', 'Não foi possível carregar os suplementos.', [
+      console.error('Erro ao carregar Hoje:', error)
+      showAlert('Erro', 'Não foi possível carregar os suplementos de hoje.', [
         { text: 'OK', onPress: () => {} },
       ])
     } finally {
@@ -44,65 +45,42 @@ export default function SupplementsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadSupplements()
+      loadToday()
     }, [])
   )
 
-  const confirmDeleteSupplement = (item: Supplement) => {
+  const completed = items.filter((item) => item.taken_today).length
+  const total = items.length
+  const progress = total > 0 ? (completed / total) * 100 : 0
+
+  const toggleTaken = async (item: TodaySupplement) => {
     if (!item.id) return
 
-    showAlert(
-      'Apagar suplemento',
-      `Tens a certeza que queres apagar "${item.name}"?`,
-      [
-        { text: 'Cancelar', onPress: () => {} },
-        {
-          text: 'Apagar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteSupplement(item.id!)
+    const previous = items
 
-              setSupplements((current) =>
-                current.filter((supplement) => supplement.id !== item.id)
-              )
-            } catch (error) {
-              console.error('Erro ao apagar suplemento:', error)
-              setTimeout(() => {
-  showAlert('Erro', 'Não foi possível apagar o suplemento.', [
-    { text: 'OK', onPress: () => {} },
-  ])
-}, 300)
-            }
-          },
-        },
-      ]
+    setItems((current) =>
+      current.map((supplement) =>
+        supplement.id === item.id
+          ? { ...supplement, taken_today: !supplement.taken_today }
+          : supplement
+      )
     )
-  }
 
-  const openSupplementOptions = (item: Supplement) => {
-  showAlert(item.name, 'O que queres fazer?', [
-    { text: 'Cancelar', onPress: () => {} },
-    {
-      text: 'Editar',
-      onPress: () => {
-        router.push({
-          pathname: '/edit-supplement' as any,
-          params: { id: item.id },
-        })
-      },
-    },
-    {
-      text: 'Apagar',
-      style: 'destructive',
-      onPress: () => {
-        setTimeout(() => {
-          confirmDeleteSupplement(item)
-        }, 300)
-      },
-    },
-  ])
-}
+    try {
+      if (item.taken_today) {
+        await unmarkSupplementTaken(item.id)
+      } else {
+        await markSupplementTaken(item.id)
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar toma:', error)
+      setItems(previous)
+
+      showAlert('Erro', 'Não foi possível atualizar esta toma.', [
+        { text: 'OK', onPress: () => {} },
+      ])
+    }
+  }
 
   return (
     <>
@@ -123,75 +101,91 @@ export default function SupplementsScreen() {
             </TouchableOpacity>
 
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Suplementos</Text>
+              <Text style={styles.title}>Hoje</Text>
               <Text style={styles.subtitle}>
-                Gere a tua lista, detalhes e horários.
+                {loading
+                  ? 'A carregar rotina...'
+                  : total === 0
+                    ? 'Nada agendado para hoje'
+                    : `${completed}/${total} suplementos tomados`}
               </Text>
             </View>
 
             <TouchableOpacity
-              style={styles.addButton}
-              onPress={() => router.push('/add-supplement' as any)}
+              style={styles.inventoryButton}
+              onPress={() => router.push('/supplements' as any)}
             >
-              <Ionicons name="add" size={26} color="white" />
+              <Ionicons name="albums-outline" size={24} color="white" />
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.progressCard}>
+            <View style={styles.progressHeader}>
+              <Text style={styles.progressTitle}>
+                {total === 0
+                  ? 'Sem tomas'
+                  : completed === total
+                    ? 'Rotina completa'
+                    : 'Progresso de hoje'}
+              </Text>
+
+              <Text style={styles.progressValue}>
+                {total > 0 ? `${Math.round(progress)}%` : '0%'}
+              </Text>
+            </View>
+
+            <View style={styles.progressBar}>
+              <View style={[styles.progressFill, { width: `${progress}%` }]} />
+            </View>
           </View>
 
           {loading ? (
             <View style={styles.loadingBox}>
               <ActivityIndicator color="#22c55e" size="large" />
-              <Text style={styles.loadingText}>A carregar suplementos...</Text>
+              <Text style={styles.loadingText}>A preparar o teu dia...</Text>
             </View>
-          ) : supplements.length === 0 ? (
+          ) : total === 0 ? (
             <View style={styles.empty}>
               <View style={styles.emptyIcon}>
-                <Ionicons name="nutrition-outline" size={42} color="#c4b5fd" />
+                <Ionicons name="calendar-outline" size={42} color="#c4b5fd" />
               </View>
 
-              <Text style={styles.emptyTitle}>Sem suplementos ainda</Text>
+              <Text style={styles.emptyTitle}>Nada para hoje</Text>
               <Text style={styles.emptyText}>
-                Adiciona a tua primeira vitamina por foto, IA ou manualmente.
+                Adiciona suplementos e define os dias da semana para aparecerem aqui.
               </Text>
 
               <TouchableOpacity
-                style={styles.emptyButton}
+                style={styles.addButton}
                 onPress={() => router.push('/add-supplement' as any)}
               >
                 <Ionicons name="add-circle-outline" size={22} color="white" />
-                <Text style={styles.emptyButtonText}>Adicionar suplemento</Text>
+                <Text style={styles.addButtonText}>Adicionar suplemento</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <FlatList
-              data={supplements}
+              data={items}
               keyExtractor={(item) => item.id ?? item.name}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: 36 }}
               renderItem={({ item }) => {
-                const dosageText =
+                const time = item.reminder_time
+                  ? item.reminder_time.slice(0, 5)
+                  : null
+
+                const dosage =
                   item.dosage_amount && item.dosage_unit
                     ? `${item.dosage_amount} ${item.dosage_unit}`
                     : null
 
-                const timeText = item.reminder_time
-                  ? item.reminder_time.slice(0, 5)
-                  : null
-
-                const metaText = [dosageText, timeText]
-                  .filter(Boolean)
-                  .join(' • ')
+                const metaText = [dosage, time].filter(Boolean).join(' • ')
 
                 return (
                   <TouchableOpacity
-                    style={styles.card}
+                    style={[styles.card, item.taken_today && styles.cardDone]}
                     activeOpacity={0.85}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/supplement-details' as any,
-                        params: { id: item.id },
-                      })
-                    }
-                    onLongPress={() => openSupplementOptions(item)}
+                    onPress={() => toggleTaken(item)}
                   >
                     {item.photo_url ? (
                       <Image source={{ uri: item.photo_url }} style={styles.image} />
@@ -199,7 +193,7 @@ export default function SupplementsScreen() {
                       <View style={styles.imagePlaceholder}>
                         <Ionicons
                           name="nutrition-outline"
-                          size={30}
+                          size={28}
                           color="#c4b5fd"
                         />
                       </View>
@@ -210,16 +204,16 @@ export default function SupplementsScreen() {
                         {item.name}
                       </Text>
 
-                      {!!item.brand && (
-                        <Text style={styles.brand} numberOfLines={1}>
-                          {item.brand}
-                        </Text>
-                      )}
-
                       {!!metaText && <Text style={styles.meta}>{metaText}</Text>}
                     </View>
 
-                    <Ionicons name="chevron-forward" size={22} color="#94a3b8" />
+                    <View style={[styles.check, item.taken_today && styles.checkDone]}>
+                      <Ionicons
+                        name={item.taken_today ? 'checkmark' : 'ellipse-outline'}
+                        size={25}
+                        color={item.taken_today ? 'white' : '#94a3b8'}
+                      />
+                    </View>
                   </TouchableOpacity>
                 )
               }}
@@ -245,7 +239,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 26,
+    marginBottom: 22,
     gap: 14,
   },
   backButton: {
@@ -258,21 +252,56 @@ const styles = StyleSheet.create({
   },
   title: {
     color: 'white',
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: '900',
   },
   subtitle: {
     color: '#cbd5e1',
-    fontSize: 14,
+    fontSize: 15,
     marginTop: 4,
+    fontWeight: '600',
   },
-  addButton: {
-    backgroundColor: '#22c55e',
+  inventoryButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     width: 46,
     height: 46,
     borderRadius: 23,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  progressCard: {
+    backgroundColor: 'rgba(15, 23, 42, 0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 22,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  progressTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  progressValue: {
+    color: '#67e8f9',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  progressBar: {
+    backgroundColor: '#1e293b',
+    height: 12,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#22c55e',
+    borderRadius: 8,
   },
   loadingBox: {
     marginTop: 80,
@@ -285,7 +314,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   empty: {
-    marginTop: 70,
+    marginTop: 58,
     alignItems: 'center',
     backgroundColor: 'rgba(15, 23, 42, 0.72)',
     borderWidth: 1,
@@ -304,19 +333,18 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: 'white',
-    fontSize: 23,
+    fontSize: 24,
     fontWeight: '900',
     marginBottom: 8,
-    textAlign: 'center',
   },
   emptyText: {
     color: '#cbd5e1',
-    fontSize: 15,
     textAlign: 'center',
+    fontSize: 15,
     lineHeight: 21,
     marginBottom: 20,
   },
-  emptyButton: {
+  addButton: {
     backgroundColor: '#22c55e',
     borderRadius: 18,
     paddingHorizontal: 18,
@@ -325,7 +353,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  emptyButtonText: {
+  addButtonText: {
     color: 'white',
     fontWeight: '900',
     fontSize: 15,
@@ -334,23 +362,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(15, 23, 42, 0.72)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
     borderRadius: 22,
     padding: 14,
     marginBottom: 14,
     gap: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  cardDone: {
+    borderColor: '#22c55e',
+    backgroundColor: 'rgba(34, 197, 94, 0.14)',
   },
   image: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
+    width: 58,
+    height: 58,
+    borderRadius: 17,
     backgroundColor: '#334155',
   },
   imagePlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
+    width: 58,
+    height: 58,
+    borderRadius: 17,
     backgroundColor: 'rgba(124, 58, 237, 0.16)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -363,15 +395,21 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
   },
-  brand: {
-    color: '#cbd5e1',
-    marginTop: 3,
-    fontSize: 14,
-    fontWeight: '600',
-  },
   meta: {
     color: '#94a3b8',
     marginTop: 5,
     fontSize: 14,
+    fontWeight: '600',
+  },
+  check: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.9)',
+  },
+  checkDone: {
+    backgroundColor: '#22c55e',
   },
 })

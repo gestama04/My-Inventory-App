@@ -27,6 +27,12 @@ export type Supplement = {
   is_active?: boolean
   created_at?: string
   updated_at?: string
+  active_ingredients?: {
+  name: string
+  amount: number | null
+  unit: string | null
+}[] | null
+  notification_ids?: string[] | null
 }
 
 export type SupplementAnalysisResult = {
@@ -39,4 +45,9 @@ export type SupplementAnalysisResult = {
   containerQuantity: number | null
   instructionsFromLabel: string | null
   confidence: number
+  activeIngredients?: {
+  name: string
+  amount: number | null
+  unit: string | null
+}[]
 }

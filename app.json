@@ -1,27 +1,27 @@
 {
   "expo": {
-    "name": "My Inventory",
-    "slug": "InventoryAppNew",
+    "name": "VitaStreak",
+    "slug": "vitastreak",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "vitastreak",
     "splash": {
       "image": "./assets/images/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#3498db"
+      "resizeMode": "cover",
+      "backgroundColor": "#0f172a"
     },
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gestama.vitastreak"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0f172a"
       },
-      "package": "com.gestama.InventoryApp"
+      "package": "com.gestama.vitastreak"
     },
     "web": {
       "bundler": "metro",
@@ -34,7 +34,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/notification-icon.png",
-          "color": "#ffffff"
+          "color": "#7c3aed"
         }
       ],
       [
@@ -58,7 +58,7 @@
         "origin": false
       },
       "eas": {
-        "projectId": "3abf848f-326e-4719-a3c6-9c4c60605aa7"
+        "projectId": "42ade82a-b853-4ab2-b4e9-4c1a08bd7a91"
       }
     }
   }

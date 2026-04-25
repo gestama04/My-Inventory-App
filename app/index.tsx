@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../auth-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import WelcomeScreen from './welcome';
-import InitialSetupScreen from './setup';
+import WelcomeScreen from './welcome-vitastreak'
+import InitialSetupScreen from './setup-vitastreak'
 import { View, ActivityIndicator } from 'react-native';
 
 export default function Index() {
@@ -31,10 +31,10 @@ export default function Index() {
       setShowWelcome(false);
       setIsProcessing(false);
       // Sempre vai para login após o welcome
-      router.replace('/login' as any);
+      router.replace('/login-vitastreak' as any)
     } catch (error) {
       console.error('Erro ao salvar welcome:', error);
-      router.replace('/login' as any);
+      router.replace('/login-vitastreak' as any)
     }
   };
 
@@ -48,10 +48,10 @@ export default function Index() {
       }
       setShowInitialSetup(false);
       setIsProcessing(false);
-      router.replace('/home' as any);
+      router.replace('/vitastreak-home' as any);
     } catch (error) {
       console.error('Erro ao salvar setup:', error);
-      router.replace('/home' as any);
+      router.replace('/vitastreak-home' as any);
     }
   };
 
@@ -87,7 +87,7 @@ export default function Index() {
           setShowWelcome(false);
           setShowInitialSetup(false);
           setIsProcessing(false);
-          router.replace('/login' as any);
+          router.replace('/login-vitastreak' as any)
           return;
         }
 
@@ -109,7 +109,7 @@ export default function Index() {
         setShowWelcome(false);
         setShowInitialSetup(false);
         setIsProcessing(false);
-        router.replace('/home' as any);
+        router.replace('/vitastreak-home' as any);
 
       } catch (error) {
         console.error('❌ Erro na navegação:', error);
@@ -117,7 +117,7 @@ export default function Index() {
         setShowWelcome(false);
         setShowInitialSetup(false);
         setIsProcessing(false);
-        router.replace('/login' as any);
+        router.replace('/login-vitastreak' as any)
       }
     };
 
