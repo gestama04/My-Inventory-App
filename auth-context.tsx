@@ -334,7 +334,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   const resetPassword = async (email: string) => {
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: 'myinventoryapp://reset-password',
+        redirectTo: 'vitastreak://reset-password-vitastreak',
       });
       
       if (error) throw error;
