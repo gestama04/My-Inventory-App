@@ -17,7 +17,7 @@ const [todayTotal, setTodayTotal] = useState(0)
 const [todayCompleted, setTodayCompleted] = useState(0)
 const [streak, setStreak] = useState(0)
 const { currentUser } = useAuth()
-
+const todayRemaining = Math.max(todayTotal - todayCompleted, 0)
 const avatarUrl =
   currentUser?.user_metadata?.avatar_url ||
   currentUser?.user_metadata?.picture ||
@@ -101,10 +101,12 @@ useFocusEffect(
   <Text style={styles.cardTitle}>Hoje</Text>
   <Text style={styles.cardSubtitle}>
     {loading
-      ? 'A carregar...'
-      : todayTotal === 0
-        ? 'Nada agendado para hoje'
-        : `Tens ${todayTotal} toma${todayTotal === 1 ? '' : 's'} para fazer`}
+  ? 'A carregar...'
+  : todayTotal === 0
+    ? 'Nada agendado para hoje'
+    : todayRemaining === 0
+      ? 'Todas as tomas de hoje feitas'
+      : `Tens ${todayRemaining} toma${todayRemaining === 1 ? '' : 's'} por fazer`}
   </Text>
 </View>
 

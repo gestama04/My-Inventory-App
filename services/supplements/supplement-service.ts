@@ -164,33 +164,33 @@ export async function getTodaySupplements() {
 
   if (logsError) throw logsError
 
-  const todayItems: TodaySupplement[] = []
 
-  for (const supplement of supplements || []) {
-    if (!isSupplementScheduledForDate(supplement as Supplement, now)) continue
+  return (supplements || [])
+  .filter((supplement) =>
+    isSupplementScheduledForDate(supplement as Supplement, now)
+  )
+  .flatMap((supplement: Supplement) => {
+    const times = getReminderTimes(supplement)
 
-    const times = getReminderTimes(supplement as Supplement)
+    return times.map((time) => {
+      const normalizedTime = String(time).slice(0, 5)
 
-    for (const time of times) {
       const log = (logs || []).find(
         (l: any) =>
           l.supplement_id === supplement.id &&
-          l.reminder_time === time
+          String(l.reminder_time).slice(0, 5) === normalizedTime
       )
 
-      todayItems.push({
-        ...(supplement as Supplement),
-        take_id: `${supplement.id}-${time}`,
-        reminder_time: time,
+      return {
+        ...supplement,
+        take_id: `${supplement.id}-${normalizedTime}`,
+        reminder_time: normalizedTime,
         taken_today: !!log,
         log_id: log?.id ?? null,
-      })
-    }
-  }
-
-  return todayItems.sort((a, b) =>
-    (a.reminder_time ?? '').localeCompare(b.reminder_time ?? '')
-  )
+      }
+    })
+  })
+  .sort((a, b) => a.reminder_time.localeCompare(b.reminder_time)) as TodaySupplement[]
 }
 
 export async function markSupplementTaken(

@@ -32,6 +32,22 @@ function formatTime(value?: string | null) {
   return value.slice(0, 5)
 }
 
+function formatTimes(supplement: Supplement) {
+  const times =
+    Array.isArray(supplement.reminder_times) && supplement.reminder_times.length > 0
+      ? supplement.reminder_times
+      : supplement.reminder_time
+        ? [supplement.reminder_time]
+        : []
+
+  if (times.length === 0) return 'Sem hora definida'
+
+  return times
+    .map((time) => String(time).slice(0, 5))
+    .sort()
+    .join(', ')
+}
+
 function formatDays(days?: number[]) {
   if (!days || days.length === 0) return 'Sem dias definidos'
 
@@ -154,7 +170,7 @@ export default function SupplementDetailsScreen() {
             <InfoBox
               icon="time-outline"
               label="Hora"
-              value={formatTime(supplement.reminder_time)}
+              value={formatTimes(supplement)}
             />
             <InfoBox
               icon="calendar-outline"
