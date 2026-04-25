@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { SupplementFrequencyType } from '../types/supplements/supplement'
 import {
   View,
   Text,
@@ -56,7 +57,13 @@ export default function AddSupplementScreen() {
   const [confidence, setConfidence] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+  const [frequencyType, setFrequencyType] =
+    useState<SupplementFrequencyType>('daily')
 
+  const [daysOfWeek, setDaysOfWeek] = useState<number[]>([1, 2, 3, 4, 5, 6, 0])
+  const [reminderTimes, setReminderTimes] = useState<string[]>([])
+  const [editingTimeIndex, setEditingTimeIndex] = useState<number | null>(null)
+  const [intervalDays, setIntervalDays] = useState('2')
   const [activeIngredients, setActiveIngredients] = useState<
     { name: string; amount: number | null; unit: string | null }[]
   >([])
@@ -178,15 +185,43 @@ export default function AddSupplementScreen() {
     }
   }
 
-  const handleTimeChange = (event: any, selectedDate?: Date) => {
+const handleTimeChange = (_event: any, selectedDate?: Date) => {
   setShowTimePicker(false)
 
+  if (editingTimeIndex === null) return
   if (!selectedDate) return
 
   const hours = selectedDate.getHours().toString().padStart(2, '0')
   const minutes = selectedDate.getMinutes().toString().padStart(2, '0')
+  const time = `${hours}:${minutes}`
 
-  setReminderTime(`${hours}:${minutes}`)
+  setReminderTimes((current) => {
+    const next = [...current]
+    next[editingTimeIndex] = time
+    return next
+  })
+
+  if (editingTimeIndex === 0) {
+    setReminderTime(time)
+  }
+
+  setEditingTimeIndex(null)
+}
+
+const addReminderTime = () => {
+  setReminderTimes((current) => [...current, ''])
+}
+
+const removeReminderTime = (index: number) => {
+  setReminderTimes((current) => current.filter((_, i) => i !== index))
+}
+
+const toggleDay = (day: number) => {
+  setDaysOfWeek((current) =>
+    current.includes(day)
+      ? current.filter((item) => item !== day)
+      : [...current, day]
+  )
 }
 
   const handleSave = async () => {
@@ -196,7 +231,21 @@ export default function AddSupplementScreen() {
       ])
       return
     }
+  const cleanedReminderTimes = reminderTimes.filter(Boolean)
 
+if (cleanedReminderTimes.length === 0) {
+  showAlert('Hora em falta', 'Escolhe pelo menos uma hora de lembrete.', [
+    { text: 'OK', onPress: () => {} },
+  ])
+  return
+}
+
+if (frequencyType === 'specific_days' && daysOfWeek.length === 0) {
+  showAlert('Dias em falta', 'Escolhe pelo menos um dia da semana.', [
+    { text: 'OK', onPress: () => {} },
+  ])
+  return
+}
     try {
       setLoading(true)
 
@@ -213,9 +262,20 @@ export default function AddSupplementScreen() {
             ? Number(containerQuantity)
             : null,
           instructions_from_label: instructions.trim() || null,
-          reminder_time: reminderTime || null,
-          days_of_week: [1, 2, 3, 4, 5, 6, 0],
-          is_active: true,
+          reminder_time: cleanedReminderTimes[0],
+reminder_times: cleanedReminderTimes,
+frequency_type: frequencyType,
+times_per_day: cleanedReminderTimes.length,
+days_of_week:
+  frequencyType === 'specific_days'
+    ? daysOfWeek
+    : [1, 2, 3, 4, 5, 6, 0],
+start_date: new Date().toISOString().slice(0, 10),
+interval_days:
+  frequencyType === 'custom_interval'
+    ? Number(intervalDays || 1)
+    : null,
+is_active: true,
         },
         photoBase64
       )
@@ -388,25 +448,126 @@ export default function AddSupplementScreen() {
               onChangeText={setServingSize}
             />
 
-            <TouchableOpacity
-  style={styles.timeButton}
-  onPress={() => setShowTimePicker(true)}
->
-  <Ionicons name="time-outline" size={20} color="#94a3b8" />
-  <Text style={[styles.timeButtonText, !reminderTime && styles.timePlaceholder]}>
-    {reminderTime || 'Escolher hora do lembrete'}
-  </Text>
-</TouchableOpacity>
+            <View style={styles.routineBox}>
+  <Text style={styles.routineTitle}>Rotina</Text>
 
-{showTimePicker ? (
-  <DateTimePicker
-    value={new Date()}
-    mode="time"
-    display="default"
-    is24Hour
-    onChange={handleTimeChange}
-  />
-) : null}
+  <View style={styles.optionGrid}>
+    {[
+      { label: 'Todos os dias', value: 'daily' },
+      { label: 'Dias específicos', value: 'specific_days' },
+      { label: 'Dia sim dia não', value: 'every_other_day' },
+      { label: 'A cada X dias', value: 'custom_interval' },
+    ].map((option) => (
+      <TouchableOpacity
+        key={option.value}
+        style={[
+          styles.optionChip,
+          frequencyType === option.value && styles.optionChipActive,
+        ]}
+        onPress={() => setFrequencyType(option.value as SupplementFrequencyType)}
+      >
+        <Text
+          style={[
+            styles.optionChipText,
+            frequencyType === option.value && styles.optionChipTextActive,
+          ]}
+        >
+          {option.label}
+        </Text>
+      </TouchableOpacity>
+    ))}
+  </View>
+
+  {frequencyType === 'specific_days' ? (
+    <View style={styles.daysRow}>
+      {[
+        { label: 'D', value: 0 },
+        { label: 'S', value: 1 },
+        { label: 'T', value: 2 },
+        { label: 'Q', value: 3 },
+        { label: 'Q', value: 4 },
+        { label: 'S', value: 5 },
+        { label: 'S', value: 6 },
+      ].map((day) => (
+        <TouchableOpacity
+          key={day.value}
+          style={[
+            styles.dayButton,
+            daysOfWeek.includes(day.value) && styles.dayButtonActive,
+          ]}
+          onPress={() => toggleDay(day.value)}
+        >
+          <Text
+            style={[
+              styles.dayButtonText,
+              daysOfWeek.includes(day.value) && styles.dayButtonTextActive,
+            ]}
+          >
+            {day.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  ) : null}
+
+  {frequencyType === 'custom_interval' ? (
+    <TextInput
+      style={styles.input}
+      placeholder="Intervalo em dias. Ex: 3"
+      placeholderTextColor="#94a3b8"
+      value={intervalDays}
+      onChangeText={setIntervalDays}
+      keyboardType="numeric"
+    />
+  ) : null}
+
+  <View style={styles.timesHeader}>
+    <Text style={styles.timesTitle}>Horas das tomas</Text>
+
+    <TouchableOpacity style={styles.smallAddButton} onPress={addReminderTime}>
+      <Ionicons name="add" size={18} color="white" />
+      <Text style={styles.smallAddButtonText}>Adicionar</Text>
+    </TouchableOpacity>
+  </View>
+
+  {reminderTimes.length === 0 ? (
+    <Text style={styles.emptyTimesText}>Adiciona pelo menos uma hora.</Text>
+  ) : null}
+
+  {reminderTimes.map((time, index) => (
+    <View key={index} style={styles.timeRow}>
+      <TouchableOpacity
+        style={styles.timeButton}
+        onPress={() => {
+          setEditingTimeIndex(index)
+          setShowTimePicker(true)
+        }}
+      >
+        <Ionicons name="time-outline" size={20} color="#94a3b8" />
+        <Text style={[styles.timeButtonText, !time && styles.timePlaceholder]}>
+          {time || `Escolher hora ${index + 1}`}
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.removeTimeButton}
+        onPress={() => removeReminderTime(index)}
+      >
+        <Ionicons name="trash-outline" size={20} color="#fecaca" />
+      </TouchableOpacity>
+    </View>
+  ))}
+
+  {showTimePicker ? (
+    <DateTimePicker
+      value={new Date()}
+      mode="time"
+      display="default"
+      is24Hour
+      onChange={handleTimeChange}
+    />
+  ) : null}
+</View>
 
             <TextInput
               style={styles.input}
@@ -483,6 +644,116 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 20,
   },
+  routineBox: {
+  backgroundColor: 'rgba(30, 41, 59, 0.55)',
+  borderWidth: 1,
+  borderColor: '#334155',
+  borderRadius: 20,
+  padding: 14,
+  marginBottom: 12,
+},
+routineTitle: {
+  color: 'white',
+  fontSize: 18,
+  fontWeight: '900',
+  marginBottom: 12,
+},
+optionGrid: {
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  gap: 8,
+  marginBottom: 12,
+},
+optionChip: {
+  paddingHorizontal: 12,
+  paddingVertical: 10,
+  borderRadius: 14,
+  backgroundColor: 'rgba(15, 23, 42, 0.85)',
+  borderWidth: 1,
+  borderColor: '#334155',
+},
+optionChipActive: {
+  backgroundColor: '#7c3aed',
+  borderColor: '#a78bfa',
+},
+optionChipText: {
+  color: '#cbd5e1',
+  fontSize: 13,
+  fontWeight: '800',
+},
+optionChipTextActive: {
+  color: 'white',
+},
+daysRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  marginBottom: 12,
+},
+dayButton: {
+  width: 36,
+  height: 36,
+  borderRadius: 18,
+  backgroundColor: 'rgba(15, 23, 42, 0.85)',
+  borderWidth: 1,
+  borderColor: '#334155',
+  justifyContent: 'center',
+  alignItems: 'center',
+},
+dayButtonActive: {
+  backgroundColor: '#22c55e',
+  borderColor: '#86efac',
+},
+dayButtonText: {
+  color: '#cbd5e1',
+  fontWeight: '900',
+},
+dayButtonTextActive: {
+  color: 'white',
+},
+timesHeader: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: 10,
+},
+timesTitle: {
+  color: 'white',
+  fontSize: 15,
+  fontWeight: '900',
+},
+smallAddButton: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 4,
+  backgroundColor: '#22c55e',
+  paddingHorizontal: 10,
+  paddingVertical: 8,
+  borderRadius: 12,
+},
+smallAddButtonText: {
+  color: 'white',
+  fontSize: 13,
+  fontWeight: '900',
+},
+emptyTimesText: {
+  color: '#94a3b8',
+  fontSize: 14,
+  marginBottom: 10,
+},
+timeRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 10,
+},
+removeTimeButton: {
+  width: 48,
+  height: 50,
+  borderRadius: 16,
+  backgroundColor: 'rgba(239, 68, 68, 0.18)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginBottom: 12,
+},
   timeButton: {
   backgroundColor: 'rgba(30, 41, 59, 0.95)',
   borderWidth: 1,

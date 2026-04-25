@@ -9,6 +9,18 @@ export type DosageUnit =
   | 'drop'
   | ''
 
+export type SupplementFrequencyType =
+  | 'daily'
+  | 'specific_days'
+  | 'every_other_day'
+  | 'custom_interval'
+
+export type ActiveIngredient = {
+  name: string
+  amount: number | null
+  unit: string | null
+}
+
 export type Supplement = {
   id?: string
   user_id?: string
@@ -20,18 +32,22 @@ export type Supplement = {
   serving_size?: string | null
   container_quantity?: number | null
   instructions_from_label?: string | null
+
   reminder_time?: string | null
+  reminder_times?: string[]
+
+  frequency_type?: SupplementFrequencyType
+  times_per_day?: number
   days_of_week: number[]
+  start_date?: string | null
+  interval_days?: number | null
+
   photo_url?: string | null
   photo_public_id?: string | null
   is_active?: boolean
   created_at?: string
   updated_at?: string
-  active_ingredients?: {
-  name: string
-  amount: number | null
-  unit: string | null
-}[] | null
+  active_ingredients?: ActiveIngredient[] | null
   notification_ids?: string[] | null
 }
 
@@ -45,9 +61,5 @@ export type SupplementAnalysisResult = {
   containerQuantity: number | null
   instructionsFromLabel: string | null
   confidence: number
-  activeIngredients?: {
-  name: string
-  amount: number | null
-  unit: string | null
-}[]
+  activeIngredients?: ActiveIngredient[]
 }

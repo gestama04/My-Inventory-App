@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { supabase } from '../supabase-config'
 import {
   Text,
   TextInput,
@@ -77,16 +78,20 @@ export default function LoginScreen() {
       console.log('Erro de login:', error?.code, error?.message)
 
       if (
-        error?.message === 'email-not-verified' ||
-        error?.message?.includes('email-not-verified')
-      ) {
-        showAlert(
-          'Email não verificado',
-          'Por favor, verifica o teu email para confirmar o registo.',
-          [{ text: 'OK', onPress: () => {} }]
-        )
-        return
-      }
+  error?.message === 'email-not-verified' ||
+  error?.message?.includes('email-not-verified') ||
+  error?.message?.toLowerCase?.().includes('email not confirmed')
+) {
+  showAlert(
+    'Confirma o email',
+    'Precisas de confirmar o email antes de entrar. Queres reenviar o email de confirmação?',
+    [
+      { text: 'Cancelar', onPress: () => {} },
+      { text: 'Reenviar', onPress: handleResendConfirmation },
+    ]
+  )
+  return
+}
 
       showAlert(
         'Erro de login',
@@ -126,6 +131,42 @@ export default function LoginScreen() {
       setIsLoading(false)
     }
   }
+  
+  const handleResendConfirmation = async () => {
+  if (!email.trim()) {
+    showAlert('Email em falta', 'Insere o teu email para reenviar a confirmação.', [
+      { text: 'OK', onPress: () => {} },
+    ])
+    return
+  }
+
+  try {
+    setIsLoading(true)
+
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email.trim(),
+      options: {
+        emailRedirectTo: 'vitastreak://',
+      },
+    })
+
+    if (error) throw error
+
+    showAlert(
+      'Email enviado',
+      'Enviámos novamente o email de confirmação. Verifica também o spam.',
+      [{ text: 'OK', onPress: () => {} }]
+    )
+  } catch (error) {
+    console.error('Erro ao reenviar confirmação:', error)
+    showAlert('Erro', 'Não foi possível reenviar o email de confirmação.', [
+      { text: 'OK', onPress: () => {} },
+    ])
+  } finally {
+    setIsLoading(false)
+  }
+}
 
   return (
     <>

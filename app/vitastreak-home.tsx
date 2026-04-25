@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image } from 'react-native'
 import { useFocusEffect, useRouter, Stack } from 'expo-router'
+import { useAuth } from '../auth-context'
 import { Ionicons } from '@expo/vector-icons'
 import {
   getSupplements,
@@ -15,7 +16,12 @@ const [totalSupplements, setTotalSupplements] = useState(0)
 const [todayTotal, setTodayTotal] = useState(0)
 const [todayCompleted, setTodayCompleted] = useState(0)
 const [streak, setStreak] = useState(0)
+const { currentUser } = useAuth()
 
+const avatarUrl =
+  currentUser?.user_metadata?.avatar_url ||
+  currentUser?.user_metadata?.picture ||
+  null
 const loadHomeData = async () => {
   try {
     setLoading(true)
@@ -48,12 +54,25 @@ useFocusEffect(
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={styles.header}>
-        <Text style={styles.title}>VitaStreak</Text>
-        <Text style={styles.subtitle}>
-          Acompanha os teus suplementos e mantém a rotina em dia.
-        </Text>
-      </View>
+      <View style={styles.headerRow}>
+  <View style={{ flex: 1 }}>
+    <Text style={styles.title}>VitaStreak</Text>
+    <Text style={styles.subtitle}>
+      Acompanha os teus suplementos e mantém a rotina em dia.
+    </Text>
+  </View>
+
+  <TouchableOpacity
+    style={styles.profileButton}
+    onPress={() => router.push('/profile-vitastreak' as any)}
+  >
+    {avatarUrl ? (
+  <Image source={{ uri: avatarUrl }} style={styles.profileImage} />
+) : (
+  <Ionicons name="person-outline" size={24} color="white" />
+)}
+  </TouchableOpacity>
+</View>
 
       <View style={styles.summary}>
   {loading ? (
@@ -66,7 +85,7 @@ useFocusEffect(
       <Text style={styles.summarySub}>
   {todayTotal === 0
     ? 'Adiciona suplementos para começares a tua rotina'
-    : `${todayCompleted}/${todayTotal} suplementos tomados hoje`}
+    : `${todayCompleted}/${todayTotal} tomas feitas hoje`}
 </Text>
     </>
   )}
@@ -85,7 +104,7 @@ useFocusEffect(
       ? 'A carregar...'
       : todayTotal === 0
         ? 'Nada agendado para hoje'
-        : `Tens ${todayTotal} suplemento${todayTotal === 1 ? '' : 's'} para tomar`}
+        : `Tens ${todayTotal} toma${todayTotal === 1 ? '' : 's'} para fazer`}
   </Text>
 </View>
 
@@ -123,13 +142,6 @@ useFocusEffect(
 
         <Ionicons name="chevron-forward" size={24} color="white" />
       </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.inventoryLink}
-        onPress={() => router.push('/home' as any)}
-      >
-        <Text style={styles.inventoryLinkText}>Abrir My Inventory antigo</Text>
-      </TouchableOpacity>
     </View>
   )
 }
@@ -140,9 +152,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f172a',
     padding: 20,
     paddingTop: 70,
-  },
-  header: {
-    marginBottom: 24,
   },
   title: {
     color: 'white',
@@ -192,11 +201,32 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 14,
   },
+  headerRow: {
+  flexDirection: 'row',
+  alignItems: 'flex-start',
+  marginBottom: 24,
+  gap: 14,
+},
+profileButton: {
+  width: 48,
+  height: 48,
+  borderRadius: 24,
+  backgroundColor: 'rgba(255,255,255,0.12)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  borderWidth: 1,
+  borderColor: 'rgba(255,255,255,0.16)',
+},
   cardTitle: {
     color: 'white',
     fontSize: 20,
     fontWeight: '800',
   },
+  profileImage: {
+  width: 48,
+  height: 48,
+  borderRadius: 24,
+},
   cardSubtitle: {
     color: '#dbeafe',
     fontSize: 14,

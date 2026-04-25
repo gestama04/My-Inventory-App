@@ -59,18 +59,18 @@ export default function TodayScreen() {
     const previous = items
 
     setItems((current) =>
-      current.map((supplement) =>
-        supplement.id === item.id
-          ? { ...supplement, taken_today: !supplement.taken_today }
-          : supplement
-      )
-    )
+  current.map((supplement) =>
+    supplement.take_id === item.take_id
+      ? { ...supplement, taken_today: !supplement.taken_today }
+      : supplement
+  )
+)
 
     try {
       if (item.taken_today) {
-        await unmarkSupplementTaken(item.id)
+        await unmarkSupplementTaken(item.id, item.reminder_time)
       } else {
-        await markSupplementTaken(item.id)
+        await markSupplementTaken(item.id, item.reminder_time)
       }
     } catch (error) {
       console.error('Erro ao atualizar toma:', error)
@@ -107,7 +107,7 @@ export default function TodayScreen() {
                   ? 'A carregar rotina...'
                   : total === 0
                     ? 'Nada agendado para hoje'
-                    : `${completed}/${total} suplementos tomados`}
+                    : `${completed}/${total} tomas feitas`}
               </Text>
             </View>
 
@@ -166,7 +166,7 @@ export default function TodayScreen() {
           ) : (
             <FlatList
               data={items}
-              keyExtractor={(item) => item.id ?? item.name}
+              keyExtractor={(item) => item.take_id}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: 36 }}
               renderItem={({ item }) => {
@@ -179,7 +179,9 @@ export default function TodayScreen() {
                     ? `${item.dosage_amount} ${item.dosage_unit}`
                     : null
 
-                const metaText = [dosage, time].filter(Boolean).join(' • ')
+                const metaText = [time ? `Toma das ${time}` : null, dosage]
+  .filter(Boolean)
+  .join(' • ')
 
                 return (
                   <TouchableOpacity

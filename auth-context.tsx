@@ -283,12 +283,13 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       console.log('[Register] Utilizador criado, a guardar perfil...');
       
       // Criar perfil do utilizador
+      if (data.session) {
       await upsertUserProfile({
         user_id: data.user.id,
         first_name: userData.firstName,
         last_name: userData.lastName,
         birth_date: formatDateForDB(userData.birthDate),
-      });
+      });}
       
       console.log('[Register] Perfil guardado com sucesso');
       

@@ -14,24 +14,17 @@ import {
 import { Stack, useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons } from '@expo/vector-icons'
-import DateTimePicker from '@react-native-community/datetimepicker'
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
 
-import { useAuth } from '../auth-context'
+import { supabase } from '../supabase-config'
 import useCustomAlert from '../hooks/useCustomAlert'
 
-export default function RegisterScreen() {
+export default function ResetPasswordScreen() {
   const router = useRouter()
-  const { register, checkEmailExists } = useAuth()
   const { showAlert, AlertComponent } = useCustomAlert()
 
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [birthDate, setBirthDate] = useState<Date | null>(null)
-  const [showDatePicker, setShowDatePicker] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
@@ -70,15 +63,6 @@ export default function RegisterScreen() {
     })
   }, [password])
 
-  const formatDate = (date: Date | null) => {
-    if (!date) return ''
-    return `${date.getDate().toString().padStart(2, '0')}/${(
-      date.getMonth() + 1
-    )
-      .toString()
-      .padStart(2, '0')}/${date.getFullYear()}`
-  }
-
   const getPasswordStrengthLabel = () => {
     const score = passwordStrength.score
     if (score <= 1) return { label: 'Fraca', color: '#ef4444' }
@@ -88,9 +72,9 @@ export default function RegisterScreen() {
     return { label: 'Muito forte', color: '#10b981' }
   }
 
-  const handleRegister = async () => {
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password || !confirmPassword) {
-      showAlert('Erro', 'Por favor, preenche todos os campos obrigatórios.', [
+  const handleReset = async () => {
+    if (!password || !confirmPassword) {
+      showAlert('Erro', 'Preenche todos os campos.', [
         { text: 'OK', onPress: () => {} },
       ])
       return
@@ -112,44 +96,25 @@ export default function RegisterScreen() {
       return
     }
 
-    setIsLoading(true)
-
     try {
-      const emailExists = await checkEmailExists(email.trim())
+      setIsLoading(true)
 
-      if (emailExists) {
-        showAlert('Email já registado', 'Este email já está em uso. Queres fazer login?', [
-          { text: 'Não', style: 'cancel', onPress: () => {} },
-          { text: 'Sim', onPress: () => router.replace('/login-vitastreak' as any) },
-        ])
-        return
-      }
-
-      await register(email.trim(), password, {
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        birthDate: birthDate ? formatDate(birthDate) : undefined,
+      const { error } = await supabase.auth.updateUser({
+        password,
       })
 
+      if (error) throw error
+
       showAlert(
-  'Conta criada',
-  'Enviámos um email de confirmação. Confirma o email antes de iniciar sessão.',
-  [{ text: 'OK', onPress: () => router.replace('/login-vitastreak' as any) }]
-)
-    } catch (error: any) {
-      console.error('Erro de registo:', error)
-
-      let errorMessage = 'Não foi possível criar a conta.'
-
-      if (error?.message?.includes('email-already-in-use')) {
-        errorMessage = 'Este email já está em uso.'
-      } else if (error?.message?.includes('invalid-email')) {
-        errorMessage = 'Email inválido.'
-      } else if (error?.message?.includes('weak-password')) {
-        errorMessage = 'A password é muito fraca.'
-      }
-
-      showAlert('Erro de registo', errorMessage, [{ text: 'OK', onPress: () => {} }])
+        'Password atualizada',
+        'A tua palavra-passe foi alterada com sucesso.',
+        [{ text: 'OK', onPress: () => router.replace('/login-vitastreak' as any) }]
+      )
+    } catch (error) {
+      console.error('Erro ao atualizar password:', error)
+      showAlert('Erro', 'Não foi possível atualizar a palavra-passe.', [
+        { text: 'OK', onPress: () => {} },
+      ])
     } finally {
       setIsLoading(false)
     }
@@ -181,66 +146,17 @@ export default function RegisterScreen() {
                 resizeMode="contain"
               />
 
-              <Text style={styles.title}>Criar conta</Text>
+              <Text style={styles.title}>Nova password</Text>
               <Text style={styles.subtitle}>
-                Começa a acompanhar a tua rotina VitaStreak.
+                Cria uma nova palavra-passe segura para a tua conta.
               </Text>
             </View>
 
             <View style={styles.card}>
-              <TextInput
-                style={styles.input}
-                placeholder="Nome"
-                placeholderTextColor="#94a3b8"
-                value={firstName}
-                onChangeText={setFirstName}
-              />
-
-              <TextInput
-                style={styles.input}
-                placeholder="Sobrenome"
-                placeholderTextColor="#94a3b8"
-                value={lastName}
-                onChangeText={setLastName}
-              />
-
-              <TouchableOpacity
-                style={styles.datePickerButton}
-                onPress={() => setShowDatePicker(true)}
-              >
-                <Text style={birthDate ? styles.dateText : styles.placeholderText}>
-                  {birthDate ? formatDate(birthDate) : 'Data de nascimento (opcional)'}
-                </Text>
-                <Ionicons name="calendar-outline" size={22} color="#94a3b8" />
-              </TouchableOpacity>
-
-              {showDatePicker && (
-                <DateTimePicker
-                  value={birthDate || new Date()}
-                  mode="date"
-                  display="default"
-                  maximumDate={new Date()}
-                  onChange={(event, selectedDate) => {
-                    setShowDatePicker(false)
-                    if (selectedDate) setBirthDate(selectedDate)
-                  }}
-                />
-              )}
-
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                placeholderTextColor="#94a3b8"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-
               <View style={styles.passwordContainer}>
                 <TextInput
                   style={styles.passwordInput}
-                  placeholder="Password"
+                  placeholder="Nova password"
                   placeholderTextColor="#94a3b8"
                   value={password}
                   onChangeText={setPassword}
@@ -305,7 +221,7 @@ export default function RegisterScreen() {
               <View style={styles.passwordContainer}>
                 <TextInput
                   style={styles.passwordInput}
-                  placeholder="Confirmar password"
+                  placeholder="Confirmar nova password"
                   placeholderTextColor="#94a3b8"
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
@@ -326,21 +242,21 @@ export default function RegisterScreen() {
 
               <TouchableOpacity
                 style={[styles.button, isLoading && styles.disabledButton]}
-                onPress={handleRegister}
+                onPress={handleReset}
                 disabled={isLoading}
               >
                 {isLoading ? (
                   <ActivityIndicator color="white" />
                 ) : (
-                  <Text style={styles.buttonText}>Registar</Text>
+                  <Text style={styles.buttonText}>Guardar nova password</Text>
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.loginLink}
-                onPress={() => router.push('/login-vitastreak' as any)}
+                onPress={() => router.replace('/login-vitastreak' as any)}
               >
-                <Text style={styles.loginText}>Já tens conta? Fazer login</Text>
+                <Text style={styles.loginText}>Voltar ao login</Text>
               </TouchableOpacity>
             </View>
           </KeyboardAwareScrollView>
@@ -366,12 +282,8 @@ function Requirement({ ok, text }: { ok: boolean; text: string }) {
 }
 
 const styles = StyleSheet.create({
-  gradient: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-  },
+  gradient: { flex: 1 },
+  container: { flex: 1 },
   scrollContainer: {
     flexGrow: 1,
     justifyContent: 'center',
@@ -393,55 +305,24 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   subtitle: {
-    color: 'rgba(255, 255, 255, 0.82)',
+    color: 'rgba(255,255,255,0.82)',
     fontSize: 15,
     marginTop: 8,
     textAlign: 'center',
   },
   card: {
-    backgroundColor: 'rgba(15, 23, 42, 0.72)',
+    backgroundColor: 'rgba(15,23,42,0.72)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: 'rgba(255,255,255,0.14)',
     borderRadius: 26,
     padding: 22,
-  },
-  input: {
-    backgroundColor: 'rgba(30, 41, 59, 0.95)',
-    borderWidth: 1,
-    borderColor: '#334155',
-    color: 'white',
-    height: 54,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    marginBottom: 14,
-  },
-  datePickerButton: {
-    backgroundColor: 'rgba(30, 41, 59, 0.95)',
-    borderWidth: 1,
-    borderColor: '#334155',
-    height: 54,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    marginBottom: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  dateText: {
-    color: 'white',
-    fontSize: 16,
-  },
-  placeholderText: {
-    color: '#94a3b8',
-    fontSize: 16,
   },
   passwordContainer: {
     position: 'relative',
     marginBottom: 14,
   },
   passwordInput: {
-    backgroundColor: 'rgba(30, 41, 59, 0.95)',
+    backgroundColor: 'rgba(30,41,59,0.95)',
     borderWidth: 1,
     borderColor: '#334155',
     color: 'white',
@@ -475,7 +356,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   requirementsContainer: {
-    backgroundColor: 'rgba(30, 41, 59, 0.72)',
+    backgroundColor: 'rgba(30,41,59,0.72)',
     borderWidth: 1,
     borderColor: '#334155',
     borderRadius: 16,

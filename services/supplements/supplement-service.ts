@@ -78,12 +78,64 @@ export async function getSupplements() {
 }
 
 export type TodaySupplement = Supplement & {
+  take_id: string
+  reminder_time: string
   taken_today?: boolean
   log_id?: string | null
 }
 
-function getTodayDateString() {
-  return new Date().toISOString().slice(0, 10)
+function getDateString(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
+function getReminderTimes(supplement: Supplement) {
+  if (Array.isArray(supplement.reminder_times) && supplement.reminder_times.length > 0) {
+    return supplement.reminder_times
+  }
+
+  if (supplement.reminder_time) {
+    return [supplement.reminder_time.slice(0, 5)]
+  }
+
+  return []
+}
+
+function isSupplementScheduledForDate(supplement: Supplement, date: Date) {
+  const frequency = supplement.frequency_type ?? 'daily'
+  const dayOfWeek = date.getDay()
+
+  if (frequency === 'daily') return true
+
+  if (frequency === 'specific_days') {
+    return Array.isArray(supplement.days_of_week)
+      ? supplement.days_of_week.includes(dayOfWeek)
+      : false
+  }
+
+  const startDateString = supplement.start_date ?? getDateString()
+  const startDate = new Date(`${startDateString}T00:00:00`)
+  const currentDate = new Date(`${getDateString(date)}T00:00:00`)
+
+  const diffDays = Math.floor(
+    (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+  )
+
+  if (diffDays < 0) return false
+
+  if (frequency === 'every_other_day') {
+    return diffDays % 2 === 0
+  }
+
+  if (frequency === 'custom_interval') {
+    const interval = supplement.interval_days ?? 1
+    return diffDays % interval === 0
+  }
+
+  return true
 }
 
 export async function getTodaySupplements() {
@@ -93,16 +145,14 @@ export async function getTodaySupplements() {
 
   if (!user) throw new Error('Utilizador não autenticado')
 
-  const today = getTodayDateString()
-  const day = new Date().getDay()
+  const today = getDateString()
+  const now = new Date()
 
   const { data: supplements, error: supplementsError } = await supabase
     .from('supplements')
     .select('*')
     .eq('user_id', user.id)
     .eq('is_active', true)
-    .contains('days_of_week', [day])
-    .order('reminder_time', { ascending: true })
 
   if (supplementsError) throw supplementsError
 
@@ -114,25 +164,46 @@ export async function getTodaySupplements() {
 
   if (logsError) throw logsError
 
-  return (supplements || []).map((supplement: Supplement) => {
-    const log = (logs || []).find((l: any) => l.supplement_id === supplement.id)
+  const todayItems: TodaySupplement[] = []
 
-    return {
-      ...supplement,
-      taken_today: !!log,
-      log_id: log?.id ?? null,
+  for (const supplement of supplements || []) {
+    if (!isSupplementScheduledForDate(supplement as Supplement, now)) continue
+
+    const times = getReminderTimes(supplement as Supplement)
+
+    for (const time of times) {
+      const log = (logs || []).find(
+        (l: any) =>
+          l.supplement_id === supplement.id &&
+          l.reminder_time === time
+      )
+
+      todayItems.push({
+        ...(supplement as Supplement),
+        take_id: `${supplement.id}-${time}`,
+        reminder_time: time,
+        taken_today: !!log,
+        log_id: log?.id ?? null,
+      })
     }
-  }) as TodaySupplement[]
+  }
+
+  return todayItems.sort((a, b) =>
+    (a.reminder_time ?? '').localeCompare(b.reminder_time ?? '')
+  )
 }
 
-export async function markSupplementTaken(supplementId: string) {
+export async function markSupplementTaken(
+  supplementId: string,
+  reminderTime: string
+) {
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
   if (!user) throw new Error('Utilizador não autenticado')
 
-  const today = getTodayDateString()
+  const today = getDateString()
 
   const { data, error } = await supabase
     .from('supplement_logs')
@@ -141,11 +212,12 @@ export async function markSupplementTaken(supplementId: string) {
         user_id: user.id,
         supplement_id: supplementId,
         taken_date: today,
+        reminder_time: reminderTime,
         status: 'taken',
         taken_at: new Date().toISOString(),
       },
       {
-        onConflict: 'user_id,supplement_id,taken_date',
+        onConflict: 'user_id,supplement_id,taken_date,reminder_time',
       }
     )
     .select()
@@ -156,14 +228,17 @@ export async function markSupplementTaken(supplementId: string) {
   return data
 }
 
-export async function unmarkSupplementTaken(supplementId: string) {
+export async function unmarkSupplementTaken(
+  supplementId: string,
+  reminderTime: string
+) {
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
   if (!user) throw new Error('Utilizador não autenticado')
 
-  const today = getTodayDateString()
+  const today = getDateString()
 
   const { error } = await supabase
     .from('supplement_logs')
@@ -171,6 +246,7 @@ export async function unmarkSupplementTaken(supplementId: string) {
     .eq('user_id', user.id)
     .eq('supplement_id', supplementId)
     .eq('taken_date', today)
+    .eq('reminder_time', reminderTime)
 
   if (error) throw error
 }
@@ -183,14 +259,16 @@ export async function deleteSupplement(supplementId: string) {
   if (!user) {
     throw new Error('Utilizador não autenticado')
   }
-const { data: existing } = await supabase
-  .from('supplements')
-  .select('notification_ids')
-  .eq('id', supplementId)
-  .eq('user_id', user.id)
-  .single()
 
-await cancelSupplementNotifications(existing?.notification_ids)
+  const { data: existing } = await supabase
+    .from('supplements')
+    .select('notification_ids')
+    .eq('id', supplementId)
+    .eq('user_id', user.id)
+    .single()
+
+  await cancelSupplementNotifications(existing?.notification_ids)
+
   const { error } = await supabase
     .from('supplements')
     .delete()
@@ -295,7 +373,7 @@ export async function getSupplementStreak() {
 
   const { data: supplements, error: supplementsError } = await supabase
     .from('supplements')
-    .select('id, days_of_week')
+    .select('*')
     .eq('user_id', user.id)
     .eq('is_active', true)
 
@@ -304,41 +382,38 @@ export async function getSupplementStreak() {
 
   const { data: logs, error: logsError } = await supabase
     .from('supplement_logs')
-    .select('supplement_id, taken_date')
+    .select('supplement_id, taken_date, reminder_time')
     .eq('user_id', user.id)
 
   if (logsError) throw logsError
 
-  const logsByDate = new Map<string, Set<string>>()
-
-  for (const log of logs || []) {
-    if (!logsByDate.has(log.taken_date)) {
-      logsByDate.set(log.taken_date, new Set())
-    }
-
-    logsByDate.get(log.taken_date)?.add(log.supplement_id)
-  }
+  const logsSet = new Set(
+    (logs || []).map(
+      (log: any) => `${log.taken_date}-${log.supplement_id}-${log.reminder_time}`
+    )
+  )
 
   const isDayComplete = (date: Date) => {
-    const dateString = date.toISOString().slice(0, 10)
-    const dayOfWeek = date.getDay()
+    const dateString = getDateString(date)
+    const scheduledTakes: string[] = []
 
-    const scheduled = supplements.filter((supplement: any) =>
-      Array.isArray(supplement.days_of_week)
-        ? supplement.days_of_week.includes(dayOfWeek)
-        : false
-    )
+    for (const supplement of supplements || []) {
+      if (!isSupplementScheduledForDate(supplement as Supplement, date)) continue
 
-    if (scheduled.length === 0) return null
+      const times = getReminderTimes(supplement as Supplement)
 
-    const taken = logsByDate.get(dateString) ?? new Set()
+      for (const time of times) {
+        scheduledTakes.push(`${dateString}-${supplement.id}-${time}`)
+      }
+    }
 
-    return scheduled.every((supplement: any) => taken.has(supplement.id))
+    if (scheduledTakes.length === 0) return null
+
+    return scheduledTakes.every((take) => logsSet.has(take))
   }
 
   const today = new Date()
   const todayComplete = isDayComplete(today)
-
   const startDate = new Date(today)
 
   if (todayComplete !== true) {
@@ -353,9 +428,7 @@ export async function getSupplementStreak() {
 
     const complete = isDayComplete(date)
 
-    if (complete === null) {
-      continue
-    }
+    if (complete === null) continue
 
     if (complete) {
       streak++

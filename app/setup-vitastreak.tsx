@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useRouter } from 'expo-router'
 import {
   View,
   Text,
@@ -21,15 +22,25 @@ interface InitialSetupScreenProps {
 export default function InitialSetupScreen({ onComplete }: InitialSetupScreenProps) {
   const { currentTheme } = useTheme()
   const { showAlert, AlertComponent } = useCustomAlert()
-
+  const router = useRouter()
+  const [acceptedLegal, setAcceptedLegal] = useState(false)
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
 
   const handleSaveSettings = async () => {
-    setIsLoading(true)
+  if (!acceptedLegal) {
+    showAlert(
+      'Aceitação necessária',
+      'Tens de aceitar a Política de Privacidade e os Termos de Utilização para continuar.',
+      [{ text: 'OK', onPress: () => {} }]
+    )
+    return
+  }
 
-    try {
+  setIsLoading(true)
+
+  try {
       showAlert(
         'Configuração completa!',
         'O VitaStreak está pronto. Podes adicionar suplementos, definir horários e receber lembretes.',
@@ -103,85 +114,106 @@ export default function InitialSetupScreen({ onComplete }: InitialSetupScreenPro
     </View>
   )
 
-  const renderNotificationSettings = () => (
-    <View style={styles.slideContainer}>
-      <View>
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View style={styles.progressFill} />
+const renderNotificationSettings = () => (
+  <View style={styles.slideContainer}>
+    <View>
+      <View style={styles.progressContainer}>
+        <View style={styles.progressBar}>
+          <View style={styles.progressFill} />
+        </View>
+        <Text style={[styles.progressText, currentTheme === 'dark' ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+          Passo 2 de 2
+        </Text>
+      </View>
+
+      <View style={styles.stepHeader}>
+        <MaterialCommunityIcons name="bell-ring" size={70} color="#7c3aed" />
+
+        <Text style={[styles.stepTitle, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+          Notificações
+        </Text>
+
+        <Text style={[styles.stepDescription, currentTheme === 'dark' ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+          Recebe lembretes à hora definida em cada suplemento.
+        </Text>
+      </View>
+
+      <View style={[styles.settingCard, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
+        <View style={styles.settingRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.settingLabel, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
+              Ativar lembretes
+            </Text>
+            <Text style={[styles.settingHelper, currentTheme === 'dark' ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+              Podes alterar isto mais tarde nas definições.
+            </Text>
           </View>
-          <Text style={[styles.progressText, currentTheme === 'dark' ? styles.darkTextSecondary : styles.lightTextSecondary]}>
-            Passo 2 de 2
-          </Text>
+
+          <Switch
+            value={notificationsEnabled}
+            onValueChange={setNotificationsEnabled}
+            trackColor={{ false: '#64748b', true: '#7c3aed' }}
+            thumbColor={notificationsEnabled ? '#22c55e' : '#f4f3f4'}
+          />
         </View>
 
-        <View style={styles.stepHeader}>
-          <MaterialCommunityIcons name="bell-ring" size={70} color="#7c3aed" />
-
-          <Text style={[styles.stepTitle, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-            Notificações
-          </Text>
-
-          <Text style={[styles.stepDescription, currentTheme === 'dark' ? styles.darkTextSecondary : styles.lightTextSecondary]}>
-            Recebe lembretes à hora definida em cada suplemento.
-          </Text>
-        </View>
-
-        <View style={[styles.settingCard, currentTheme === 'dark' ? styles.darkCard : styles.lightCard]}>
-          <View style={styles.settingRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.settingLabel, currentTheme === 'dark' ? styles.darkText : styles.lightText]}>
-                Ativar lembretes
-              </Text>
-              <Text style={[styles.settingHelper, currentTheme === 'dark' ? styles.darkTextSecondary : styles.lightTextSecondary]}>
-                Podes alterar isto mais tarde nas definições.
-              </Text>
+        <View style={styles.legalBox}>
+          <TouchableOpacity
+            style={styles.legalRow}
+            onPress={() => setAcceptedLegal(!acceptedLegal)}
+          >
+            <View style={[styles.checkbox, acceptedLegal && styles.checkboxActive]}>
+              {acceptedLegal ? (
+                <MaterialCommunityIcons name="check" size={16} color="white" />
+              ) : null}
             </View>
 
-            <Switch
-              value={notificationsEnabled}
-              onValueChange={setNotificationsEnabled}
-              trackColor={{ false: '#64748b', true: '#7c3aed' }}
-              thumbColor={notificationsEnabled ? '#22c55e' : '#f4f3f4'}
-            />
-          </View>
-
-          <View style={styles.infoBox}>
-            <MaterialCommunityIcons name="clock-outline" size={22} color="#38bdf8" />
-            <Text style={styles.infoText}>
-              Ao adicionares um suplemento, escolhes a hora e os dias da semana.
+            <Text style={[styles.legalText, currentTheme === 'dark' ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+              Li e aceito a Política de Privacidade e os Termos de Utilização.
             </Text>
-          </View>
-        </View>
-      </View>
-
-      <View>
-        <View style={styles.stepButtons}>
-          <TouchableOpacity style={styles.backButton} onPress={() => setCurrentStep(1)}>
-            <MaterialCommunityIcons name="arrow-left" size={20} color="#7c3aed" />
-            <Text style={styles.backButtonText}>Voltar</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.finishButton, isLoading && styles.disabledButton]}
-            onPress={handleSaveSettings}
-            disabled={isLoading}
-          >
-            <Text style={styles.finishButtonText}>
-              {isLoading ? 'A guardar...' : 'Concluir'}
-            </Text>
-            <MaterialCommunityIcons name="check" size={20} color="#fff" />
+          <TouchableOpacity onPress={() => router.push('/legal-vitastreak' as any)}>
+            <Text style={styles.legalLink}>Ver Política de Privacidade e Termos</Text>
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.skipButton} onPress={onComplete}>
-          <Text style={[styles.skipText, currentTheme === 'dark' ? styles.darkTextSecondary : styles.lightTextSecondary]}>
-            Saltar configuração
+        <View style={styles.infoBox}>
+          <MaterialCommunityIcons name="clock-outline" size={22} color="#38bdf8" />
+          <Text style={styles.infoText}>
+            Ao adicionares um suplemento, escolhes a hora e os dias da semana.
           </Text>
-        </TouchableOpacity>
+        </View>
       </View>
     </View>
-  )
+
+    <View>
+      <View style={styles.stepButtons}>
+        <TouchableOpacity style={styles.backButton} onPress={() => setCurrentStep(1)}>
+          <MaterialCommunityIcons name="arrow-left" size={20} color="#7c3aed" />
+          <Text style={styles.backButtonText}>Voltar</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.finishButton, isLoading && styles.disabledButton]}
+          onPress={handleSaveSettings}
+          disabled={isLoading}
+        >
+          <Text style={styles.finishButtonText}>
+            {isLoading ? 'A guardar...' : 'Concluir'}
+          </Text>
+          <MaterialCommunityIcons name="check" size={20} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity style={styles.skipButton} onPress={onComplete}>
+        <Text style={[styles.skipText, currentTheme === 'dark' ? styles.darkTextSecondary : styles.lightTextSecondary]}>
+          Saltar configuração
+        </Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+)
 
   return (
     <SafeAreaView style={[styles.container, currentTheme === 'dark' ? styles.darkContainer : styles.lightContainer]}>
@@ -213,6 +245,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 36,
   },
+  legalBox: {
+  marginTop: 20,
+  marginBottom: 4,
+},
+legalRow: {
+  flexDirection: 'row',
+  alignItems: 'flex-start',
+  gap: 10,
+  marginBottom: 10,
+},
+checkbox: {
+  width: 24,
+  height: 24,
+  borderRadius: 7,
+  borderWidth: 2,
+  borderColor: '#7c3aed',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginTop: 1,
+},
+checkboxActive: {
+  backgroundColor: '#7c3aed',
+},
+legalText: {
+  flex: 1,
+  fontSize: 14,
+  lineHeight: 20,
+},
+legalLink: {
+  color: '#67e8f9',
+  fontSize: 14,
+  fontWeight: '800',
+  textDecorationLine: 'underline',
+},
   logo: {
     width: 120,
     height: 120,
