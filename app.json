@@ -28,10 +28,10 @@
   [
     "expo-splash-screen",
     {
-      "image": "./assets/images/vitastreak-logo.png",
+      "image": "./assets/images/vitastreak-FUNDO.png",
       "imageWidth": 260,
       "resizeMode": "contain",
-      "backgroundColor": "#0f172a"
+      "backgroundColor": "#010c24"
     }
   ],
   [
