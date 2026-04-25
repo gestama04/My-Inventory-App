@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "vitastreak",
-    "splash": {
-      "image": "./assets/images/splash.png",
-      "resizeMode": "cover",
-      "backgroundColor": "#0f172a"
-    },
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
@@ -29,27 +24,36 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/images/notification-icon.png",
-          "color": "#7c3aed"
-        }
-      ],
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "compileSdkVersion": 35,
-            "targetSdkVersion": 34,
-            "buildToolsVersion": "35.0.0"
-          }
-        }
-      ],
-      "expo-web-browser",
-      "expo-asset"
-    ],
+  "expo-router",
+  [
+    "expo-splash-screen",
+    {
+      "image": "./assets/images/vitastreak-logo.png",
+      "imageWidth": 260,
+      "resizeMode": "contain",
+      "backgroundColor": "#0f172a"
+    }
+  ],
+  [
+    "expo-notifications",
+    {
+      "icon": "./assets/images/notification-icon.png",
+      "color": "#7c3aed"
+    }
+  ],
+  [
+    "expo-build-properties",
+    {
+      "android": {
+        "compileSdkVersion": 35,
+        "targetSdkVersion": 34,
+        "buildToolsVersion": "35.0.0"
+      }
+    }
+  ],
+  "expo-web-browser",
+  "expo-asset"
+],
     "experiments": {
       "typedRoutes": true
     },
