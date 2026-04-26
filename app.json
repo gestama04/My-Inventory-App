@@ -30,7 +30,7 @@
   {
     "image": "./assets/images/vitastreak-FUNDO.png",
     "backgroundColor": "#010c24",
-    "imageWidth": 200,
+    "imageWidth": 240,
     "resizeMode": "contain"
   }
 ],
