@@ -551,8 +551,6 @@ is_active: true,
     {[
       { label: 'Todos os dias', value: 'daily' },
       { label: 'Dias específicos', value: 'specific_days' },
-      { label: 'Dia sim dia não', value: 'every_other_day' },
-      { label: 'A cada X dias', value: 'custom_interval' },
     ].map((option) => (
       <TouchableOpacity
         key={option.value}

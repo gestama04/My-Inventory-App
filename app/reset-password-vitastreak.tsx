@@ -97,27 +97,34 @@ export default function ResetPasswordScreen() {
     }
 
     try {
-      setIsLoading(true)
+  setIsLoading(true)
 
-      const { error } = await supabase.auth.updateUser({
-        password,
-      })
+  const { error } = await supabase.auth.updateUser({
+    password,
+  })
 
-      if (error) throw error
+  if (error) throw error
 
-      showAlert(
-        'Password atualizada',
-        'A tua palavra-passe foi alterada com sucesso.',
-        [{ text: 'OK', onPress: () => router.replace('/login-vitastreak' as any) }]
-      )
-    } catch (error) {
-      console.error('Erro ao atualizar password:', error)
-      showAlert('Erro', 'Não foi possível atualizar a palavra-passe.', [
-        { text: 'OK', onPress: () => {} },
-      ])
-    } finally {
-      setIsLoading(false)
-    }
+  await supabase.auth.signOut()
+
+  showAlert(
+    'Password atualizada',
+    'A tua palavra-passe foi alterada com sucesso. Faz login com a nova password.',
+    [
+      {
+        text: 'OK',
+        onPress: () => router.replace('/login-vitastreak' as any),
+      },
+    ]
+  )
+} catch (error) {
+  console.error('Erro ao atualizar password:', error)
+  showAlert('Erro', 'Não foi possível atualizar a palavra-passe.', [
+    { text: 'OK', onPress: () => {} },
+  ])
+} finally {
+  setIsLoading(false)
+}
   }
 
   return (

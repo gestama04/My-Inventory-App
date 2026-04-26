@@ -20,40 +20,39 @@ export default function SettingsScreen() {
   const { showAlert, AlertComponent } = useCustomAlert()
 
   const deleteAccount = () => {
-    showAlert(
-      'Apagar conta',
-      'Tens a certeza? Esta ação é irreversível e pode apagar os teus dados.',
-      [
-        { text: 'Cancelar', onPress: () => {} },
-        {
-          text: 'Apagar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const {
-                data: { user },
-              } = await supabase.auth.getUser()
+  showAlert(
+    'Apagar conta',
+    'Tens a certeza? Esta ação é irreversível e vai apagar a tua conta.',
+    [
+      { text: 'Cancelar', onPress: () => {} },
+      {
+        text: 'Apagar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const { error } = await supabase.functions.invoke('delete-user')
 
-              if (!user) throw new Error('Utilizador não autenticado')
+            if (error) throw error
 
-              await supabase.from('supplement_logs').delete().eq('user_id', user.id)
-              await supabase.from('supplements').delete().eq('user_id', user.id)
-              await supabase.from('profiles').delete().eq('user_id', user.id)
+            await supabase.auth.signOut()
+            router.replace('/login-vitastreak' as any)
+          } catch (error: any) {
+  console.error('Erro ao apagar conta:', error)
 
-              await supabase.auth.signOut()
-
-              router.replace('/login-vitastreak' as any)
-            } catch (error) {
-              console.error('Erro ao apagar conta:', error)
-              showAlert('Erro', 'Não foi possível apagar a conta.', [
-                { text: 'OK', onPress: () => {} },
-              ])
-            }
-          },
-        },
-      ]
-    )
+  if (error?.context) {
+    const body = await error.context.text()
+    console.error('DELETE USER FUNCTION BODY:', body)
   }
+
+  showAlert('Erro', 'Não foi possível apagar a conta.', [
+    { text: 'OK', onPress: () => {} },
+  ])
+}
+        },
+      },
+    ]
+  )
+}
 
   return (
     <>

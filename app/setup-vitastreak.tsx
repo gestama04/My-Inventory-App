@@ -158,6 +158,9 @@ const renderNotificationSettings = () => (
         </View>
 
         <View style={styles.legalBox}>
+          <TouchableOpacity onPress={() => router.push('/legal-vitastreak' as any)}>
+            <Text style={styles.legalLink}>Ver Política de Privacidade e Termos</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.legalRow}
             onPress={() => setAcceptedLegal(!acceptedLegal)}
@@ -171,10 +174,6 @@ const renderNotificationSettings = () => (
             <Text style={[styles.legalText, currentTheme === 'dark' ? styles.darkTextSecondary : styles.lightTextSecondary]}>
               Li e aceito a Política de Privacidade e os Termos de Utilização.
             </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => router.push('/legal-vitastreak' as any)}>
-            <Text style={styles.legalLink}>Ver Política de Privacidade e Termos</Text>
           </TouchableOpacity>
         </View>
 
@@ -205,12 +204,6 @@ const renderNotificationSettings = () => (
           <MaterialCommunityIcons name="check" size={20} color="#fff" />
         </TouchableOpacity>
       </View>
-
-      <TouchableOpacity style={styles.skipButton} onPress={onComplete}>
-        <Text style={[styles.skipText, currentTheme === 'dark' ? styles.darkTextSecondary : styles.lightTextSecondary]}>
-          Saltar configuração
-        </Text>
-      </TouchableOpacity>
     </View>
   </View>
 )
