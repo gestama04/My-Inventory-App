@@ -93,6 +93,15 @@ const normalizedUnit =
         .trim()
     : null
 
+const toNumberOrNull = (value: unknown) => {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const number = Number(value.replace(',', '.'))
+    return Number.isFinite(number) ? number : null
+  }
+  return null
+}
+
 const allowedUnits = ['mg', 'mcg', 'IU', 'g', 'ml', 'capsule', 'tablet', 'drop']
 
 const dosageUnit = normalizedUnit && allowedUnits.includes(normalizedUnit)
@@ -107,6 +116,14 @@ const normalizeUnit = (unit: unknown) => {
     .replace('UI', 'IU')
     .replace('µg', 'mcg')
     .replace('ug', 'mcg')
+    .replace('softgels', 'capsule')
+    .replace('softgel', 'capsule')
+    .replace('capsules', 'capsule')
+    .replace('capsule', 'capsule')
+    .replace('comprimidos', 'tablet')
+    .replace('comprimido', 'tablet')
+    .replace('tablets', 'tablet')
+    .replace('drops', 'drop')
     .trim()
 
   return allowedUnits.includes(normalized) ? normalized : null
@@ -116,10 +133,7 @@ const activeIngredients = Array.isArray(parsed.activeIngredients)
   ? parsed.activeIngredients
       .map((ingredient: any) => ({
         name: typeof ingredient.name === 'string' ? ingredient.name : '',
-        amount:
-          typeof ingredient.amount === 'number'
-            ? ingredient.amount
-            : null,
+        amount: toNumberOrNull(ingredient.amount),
         unit: normalizeUnit(ingredient.unit),
       }))
       .filter((ingredient: any) => ingredient.name.trim().length > 0)
@@ -129,11 +143,11 @@ const activeIngredients = Array.isArray(parsed.activeIngredients)
   name: parsed.name ?? null,
   brand: parsed.brand ?? null,
   mainIngredient: parsed.mainIngredient ?? null,
-  dosageAmount: parsed.dosageAmount ?? null,
+  dosageAmount: toNumberOrNull(parsed.dosageAmount),
   dosageUnit,
   activeIngredients,
   servingSize: parsed.servingSize ?? null,
-  containerQuantity: parsed.containerQuantity ?? null,
+  containerQuantity: toNumberOrNull(parsed.containerQuantity),
   instructionsFromLabel: parsed.instructionsFromLabel ?? null,
   confidence:
     typeof parsed.confidence === 'number' ? parsed.confidence : 0,
