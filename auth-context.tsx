@@ -139,9 +139,12 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   setLoading(false);
 
   if (event === 'PASSWORD_RECOVERY') {
-    console.log('🔑 Sessão de recuperação de password');
-    return;
-  }
+  console.log('🔑 Sessão de recuperação de password')
+  setSession(newSession)
+  setCurrentUser(newSession?.user ?? null)
+  setLoading(false)
+  return
+}
 
   if (
     (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&

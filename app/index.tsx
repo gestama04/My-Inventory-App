@@ -97,12 +97,9 @@ const {
 } = await supabase.auth.getUser();
 
 if (userError || !user) {
-  console.log('⚠️ Sessão ainda não está pronta');
-  setShowWelcome(false);
-  setShowInitialSetup(false);
-  setIsProcessing(false);
-  router.replace('/login-vitastreak' as any);
-  return;
+  console.log('⚠️ Sessão ainda não está pronta, a aguardar...')
+  setIsProcessing(false)
+  return
 }
         // PASSO 3: Se está logado, verificar se já fez setup
         const setupKey = `hasCompletedSetup_${user.id}`;

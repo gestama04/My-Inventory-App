@@ -74,16 +74,12 @@ export default function ResetPasswordScreen() {
 
 const handleReset = async () => {
   if (!password || !confirmPassword) {
-    showAlert('Erro', 'Preenche todos os campos.', [
-      { text: 'OK', onPress: () => {} },
-    ])
+    showAlert('Erro', 'Preenche todos os campos.', [{ text: 'OK', onPress: () => {} }])
     return
   }
 
   if (password !== confirmPassword) {
-    showAlert('Erro', 'As passwords não coincidem.', [
-      { text: 'OK', onPress: () => {} },
-    ])
+    showAlert('Erro', 'As passwords não coincidem.', [{ text: 'OK', onPress: () => {} }])
     return
   }
 
@@ -100,10 +96,9 @@ const handleReset = async () => {
     setIsLoading(true)
 
     const { error } = await supabase.auth.updateUser({ password })
-
     if (error) throw error
 
-    setIsLoading(false)
+    await supabase.auth.signOut({ scope: 'global' })
 
     showAlert(
       'Password atualizada',
@@ -111,10 +106,7 @@ const handleReset = async () => {
       [
         {
           text: 'OK',
-          onPress: async () => {
-            await supabase.auth.signOut()
-            router.replace('/login-vitastreak' as any)
-          },
+          onPress: () => router.replace('/login-vitastreak' as any),
         },
       ]
     )
