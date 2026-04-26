@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import WelcomeScreen from './welcome-vitastreak'
 import InitialSetupScreen from './setup-vitastreak'
 import { View, ActivityIndicator } from 'react-native';
+import { supabase } from '../supabase-config';
 
 export default function Index() {
   console.log('🚀 INDEX.TSX RENDERIZADO!');
@@ -90,11 +91,22 @@ export default function Index() {
           router.replace('/login-vitastreak' as any)
           return;
         }
+const {
+  data: { user },
+  error: userError,
+} = await supabase.auth.getUser();
 
+if (userError || !user) {
+  console.log('⚠️ Sessão ainda não está pronta');
+  setShowWelcome(false);
+  setShowInitialSetup(false);
+  setIsProcessing(false);
+  router.replace('/login-vitastreak' as any);
+  return;
+}
         // PASSO 3: Se está logado, verificar se já fez setup
-        const setupKey = `hasCompletedSetup_${currentUser.id}`;
+        const setupKey = `hasCompletedSetup_${user.id}`;
         const hasCompletedSetup = await AsyncStorage.getItem(setupKey);
-        console.log('🔧 Já fez setup?', !!hasCompletedSetup, 'para user:', currentUser.id);
 
         if (!hasCompletedSetup) {
           console.log('🎯 MOSTRAR SETUP (primeira vez após login)');

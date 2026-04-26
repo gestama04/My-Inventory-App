@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { SupplementFrequencyType } from '../types/supplements/supplement'
+import { SupplementAIInsights, SupplementFrequencyType } from '../types/supplements/supplement'
 import {
   View,
   Text,
@@ -64,6 +64,7 @@ export default function AddSupplementScreen() {
   const [reminderTimes, setReminderTimes] = useState<string[]>([])
   const [editingTimeIndex, setEditingTimeIndex] = useState<number | null>(null)
   const [intervalDays, setIntervalDays] = useState('2')
+  const [aiInsights, setAiInsights] = useState<SupplementAIInsights | null>(null)
   const [activeIngredients, setActiveIngredients] = useState<
     { name: string; amount: number | null; unit: string | null }[]
   >([])
@@ -96,6 +97,7 @@ export default function AddSupplementScreen() {
       )
       setDosageUnit(analysis.dosageUnit ?? 'mg')
       setServingSize(analysis.servingSize ?? '')
+      setAiInsights(analysis.aiInsights ?? null)
       setContainerQuantity(
         analysis.containerQuantity !== null &&
           analysis.containerQuantity !== undefined
@@ -113,7 +115,8 @@ export default function AddSupplementScreen() {
         dosageUnit: analysis.dosageUnit,
       })
 
-      if (!reminderTime) {
+      if (reminderTimes.length === 0 && suggestion.reminderTime) {
+  setReminderTimes([suggestion.reminderTime])
   setReminderTime(suggestion.reminderTime)
 }
 
@@ -258,6 +261,7 @@ if (frequencyType === 'specific_days' && daysOfWeek.length === 0) {
           dosage_unit: dosageUnit || null,
           active_ingredients: activeIngredients,
           serving_size: servingSize.trim() || null,
+          ai_insights: aiInsights || null,
           container_quantity: containerQuantity
             ? Number(containerQuantity)
             : null,
@@ -393,7 +397,37 @@ is_active: true,
               ))}
             </View>
           ) : null}
+{aiInsights && (
+  <View style={styles.ingredientsBox}>
+    <Text style={styles.ingredientsTitle}>Resumo IA</Text>
 
+    {aiInsights.summary ? (
+      <Text style={styles.ingredientText}>{aiInsights.summary}</Text>
+    ) : null}
+
+    {aiInsights.benefits?.length > 0 && (
+      <>
+        <Text style={styles.ingredientsTitle}>Benefícios</Text>
+        {aiInsights.benefits.map((b: string, i: number) => (
+          <Text key={i} style={styles.ingredientText}>• {b}</Text>
+        ))}
+      </>
+    )}
+
+    {aiInsights.cautions?.length > 0 && (
+      <>
+        <Text style={styles.ingredientsTitle}>Atenção</Text>
+        {aiInsights.cautions.map((c: string, i: number) => (
+          <Text key={i} style={styles.ingredientText}>• {c}</Text>
+        ))}
+      </>
+    )}
+
+    <Text style={{ color: '#94a3b8', marginTop: 10, fontSize: 12 }}>
+      Informação geral. Não substitui aconselhamento médico.
+    </Text>
+  </View>
+)}
           <View style={styles.formCard}>
             <Text style={styles.sectionTitle}>Dados do suplemento</Text>
 

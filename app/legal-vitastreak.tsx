@@ -70,6 +70,11 @@ export default function LegalVitaStreakScreen() {
               Cloudinary para imagens e serviços de IA para análise de rótulos.
             </Text>
 
+            <Text style={styles.text}>
+  As informações geradas por IA são apenas informativas e podem conter erros.
+  Não devem ser usadas para decidir doses, tratamentos ou combinações de suplementos.
+</Text>
+
             <Text style={styles.heading}>Controlo dos teus dados</Text>
             <Text style={styles.text}>
               Podes editar ou apagar suplementos, terminar sessão e solicitar a eliminação

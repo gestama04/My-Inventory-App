@@ -32,6 +32,7 @@ export type Supplement = {
   serving_size?: string | null
   container_quantity?: number | null
   instructions_from_label?: string | null
+  ai_insights?: SupplementAIInsights | null
 
   reminder_time?: string | null
   reminder_times?: string[]
@@ -62,4 +63,11 @@ export type SupplementAnalysisResult = {
   instructionsFromLabel: string | null
   confidence: number
   activeIngredients?: ActiveIngredient[]
+  aiInsights?: SupplementAIInsights
+}
+
+export type SupplementAIInsights = {
+  summary: string | null
+  benefits: string[]
+  cautions: string[]
 }

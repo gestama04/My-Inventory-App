@@ -8,7 +8,9 @@ import {
   ActivityIndicator,
   Image,
   StatusBar,
+  Dimensions
 } from 'react-native'
+import ConfettiCannon from 'react-native-confetti-cannon'
 import { Stack, useFocusEffect, useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons } from '@expo/vector-icons'
@@ -24,9 +26,10 @@ import useCustomAlert from '../hooks/useCustomAlert'
 export default function TodayScreen() {
   const router = useRouter()
   const { showAlert, AlertComponent } = useCustomAlert()
-
+  const [showConfetti, setShowConfetti] = useState(false)
   const [items, setItems] = useState<TodaySupplement[]>([])
   const [loading, setLoading] = useState(true)
+  const { width } = Dimensions.get('window')
 
   const loadToday = async () => {
     try {
@@ -59,12 +62,21 @@ export default function TodayScreen() {
     const previous = items
 
     setItems((current) =>
+      
   current.map((supplement) =>
     supplement.take_id === item.take_id
       ? { ...supplement, taken_today: !supplement.taken_today }
       : supplement
   )
 )
+const willComplete =
+  !item.taken_today &&
+  items.filter((i) => i.taken_today).length + 1 === items.length
+
+if (willComplete) {
+  setShowConfetti(true)
+}
+
 
     try {
       if (item.taken_today) {
@@ -221,7 +233,15 @@ export default function TodayScreen() {
               }}
             />
           )}
-
+        {showConfetti ? (
+  <ConfettiCannon
+  count={120}
+  origin={{ x: width / 2, y: 0 }}
+  fadeOut
+  autoStart
+  onAnimationEnd={() => setShowConfetti(false)}
+/>
+) : null}
           <AlertComponent />
         </View>
       </LinearGradient>

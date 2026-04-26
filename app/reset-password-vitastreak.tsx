@@ -72,60 +72,61 @@ export default function ResetPasswordScreen() {
     return { label: 'Muito forte', color: '#10b981' }
   }
 
-  const handleReset = async () => {
-    if (!password || !confirmPassword) {
-      showAlert('Erro', 'Preenche todos os campos.', [
-        { text: 'OK', onPress: () => {} },
-      ])
-      return
-    }
-
-    if (password !== confirmPassword) {
-      showAlert('Erro', 'As passwords não coincidem.', [
-        { text: 'OK', onPress: () => {} },
-      ])
-      return
-    }
-
-    if (passwordStrength.score < 5) {
-      showAlert(
-        'Password incompleta',
-        'A password deve ter pelo menos 8 caracteres, maiúscula, minúscula, número e caractere especial.',
-        [{ text: 'OK', onPress: () => {} }]
-      )
-      return
-    }
-
-    try {
-  setIsLoading(true)
-
-  const { error } = await supabase.auth.updateUser({
-    password,
-  })
-
-  if (error) throw error
-
-  await supabase.auth.signOut()
-
-  showAlert(
-    'Password atualizada',
-    'A tua palavra-passe foi alterada com sucesso. Faz login com a nova password.',
-    [
-      {
-        text: 'OK',
-        onPress: () => router.replace('/login-vitastreak' as any),
-      },
-    ]
-  )
-} catch (error) {
-  console.error('Erro ao atualizar password:', error)
-  showAlert('Erro', 'Não foi possível atualizar a palavra-passe.', [
-    { text: 'OK', onPress: () => {} },
-  ])
-} finally {
-  setIsLoading(false)
-}
+const handleReset = async () => {
+  if (!password || !confirmPassword) {
+    showAlert('Erro', 'Preenche todos os campos.', [
+      { text: 'OK', onPress: () => {} },
+    ])
+    return
   }
+
+  if (password !== confirmPassword) {
+    showAlert('Erro', 'As passwords não coincidem.', [
+      { text: 'OK', onPress: () => {} },
+    ])
+    return
+  }
+
+  if (passwordStrength.score < 5) {
+    showAlert(
+      'Password incompleta',
+      'A password deve ter pelo menos 8 caracteres, maiúscula, minúscula, número e caractere especial.',
+      [{ text: 'OK', onPress: () => {} }]
+    )
+    return
+  }
+
+  try {
+    setIsLoading(true)
+
+    const { error } = await supabase.auth.updateUser({ password })
+
+    if (error) throw error
+
+    setIsLoading(false)
+
+    showAlert(
+      'Password atualizada',
+      'A tua palavra-passe foi alterada com sucesso. Faz login com a nova password.',
+      [
+        {
+          text: 'OK',
+          onPress: async () => {
+            await supabase.auth.signOut()
+            router.replace('/login-vitastreak' as any)
+          },
+        },
+      ]
+    )
+  } catch (error) {
+    console.error('Erro ao atualizar password:', error)
+    showAlert('Erro', 'Não foi possível atualizar a palavra-passe.', [
+      { text: 'OK', onPress: () => {} },
+    ])
+  } finally {
+    setIsLoading(false)
+  }
+}
 
   return (
     <>

@@ -45,7 +45,12 @@ Formato obrigatório:
   "servingSize": string | null,
   "containerQuantity": number | null,
   "instructionsFromLabel": string | null,
-  "confidence": number
+  "confidence": number,
+  "aiInsights": {
+  "summary": string | null,
+  "benefits": string[],
+  "cautions": string[]
+}
 }
 
 Regras:
@@ -66,6 +71,13 @@ Regras:
 - servingSize deve ser a toma se estiver visível, exemplo: "1 cápsula". Se não estiver visível, usa null.
 - "instructionsFromLabel" deve conter apenas instruções visíveis no rótulo.
 - "confidence" deve ser entre 0 e 1.
+- "summary" deve ser uma explicação simples do suplemento (1 frase).
+- "benefits" deve listar benefícios gerais conhecidos dos ingredientes (máx 5).
+- "cautions" deve listar avisos gerais (máx 5).
+- Não dar conselhos médicos.
+- Não recomendar doses.
+- Não dizer que trata doenças.
+- Usa linguagem neutra e informativa.
 - Usa português de Portugal quando aplicável.
 `
 
@@ -149,6 +161,18 @@ const activeIngredients = Array.isArray(parsed.activeIngredients)
   servingSize: parsed.servingSize ?? null,
   containerQuantity: toNumberOrNull(parsed.containerQuantity),
   instructionsFromLabel: parsed.instructionsFromLabel ?? null,
+  aiInsights: {
+  summary:
+    typeof parsed.aiInsights?.summary === 'string'
+      ? parsed.aiInsights.summary
+      : null,
+  benefits: Array.isArray(parsed.aiInsights?.benefits)
+    ? parsed.aiInsights.benefits
+    : [],
+  cautions: Array.isArray(parsed.aiInsights?.cautions)
+    ? parsed.aiInsights.cautions
+    : [],
+},
   confidence:
     typeof parsed.confidence === 'number' ? parsed.confidence : 0,
 }
@@ -165,6 +189,11 @@ const activeIngredients = Array.isArray(parsed.activeIngredients)
       containerQuantity: null,
       instructionsFromLabel: null,
       confidence: 0,
+      aiInsights: {
+  summary: null,
+  benefits: [],
+  cautions: [],
+},
     }
   }
 }

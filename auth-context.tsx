@@ -128,27 +128,32 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
     // Listener para mudanças de autenticação
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-      console.log('Auth state changed:', event);
-      
-      if (event === 'INITIAL_SESSION') {
-        // Já tratado no initializeAuth, ignorar para evitar duplicação
-        return;
-      }
-      
-      setSession(newSession);
-      setCurrentUser(newSession?.user ?? null);
-      setLoading(false);
-      
-      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && newSession?.user) {
-        if (newSession.user.email_confirmed_at) {
-          await setupNotifications(newSession.user.id);
-        }
-      }
-      
-      if (event === 'SIGNED_OUT') {
-        clearAllListeners();
-      }
-    });
+  console.log('Auth state changed:', event);
+
+  if (event === 'INITIAL_SESSION') {
+    return;
+  }
+
+  setSession(newSession);
+  setCurrentUser(newSession?.user ?? null);
+  setLoading(false);
+
+  if (event === 'PASSWORD_RECOVERY') {
+    console.log('🔑 Sessão de recuperação de password');
+    return;
+  }
+
+  if (
+    (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&
+    newSession?.user?.email_confirmed_at
+  ) {
+    await setupNotifications(newSession.user.id);
+  }
+
+  if (event === 'SIGNED_OUT') {
+    clearAllListeners();
+  }
+});
 
     return () => {
       subscription.unsubscribe();
@@ -227,7 +232,12 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         await supabase.auth.signOut();
         throw new Error('email-not-verified');
       }
-      
+      await upsertUserProfile({
+  user_id: data.user.id,
+  first_name: data.user.user_metadata?.first_name ?? '',
+  last_name: data.user.user_metadata?.last_name ?? '',
+  birth_date: data.user.user_metadata?.birth_date,
+});
       await persistUser(data.user, rememberMe);
       
       // Salvar email se "lembrar-me" estiver ativado
@@ -255,9 +265,10 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         password,
         options: {
           data: {
-            first_name: userData.firstName,
-            last_name: userData.lastName,
-          },
+  first_name: userData.firstName,
+  last_name: userData.lastName,
+  birth_date: formatDateForDB(userData.birthDate),
+},
         },
       });
       
@@ -284,18 +295,19 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       
       // Criar perfil do utilizador
       if (data.session) {
-      await upsertUserProfile({
-        user_id: data.user.id,
-        first_name: userData.firstName,
-        last_name: userData.lastName,
-        birth_date: formatDateForDB(userData.birthDate),
-      });}
-      
-      console.log('[Register] Perfil guardado com sucesso');
-      
-      setCurrentUser(data.user);
-      
-      return data.user;
+  await upsertUserProfile({
+    user_id: data.user.id,
+    first_name: userData.firstName,
+    last_name: userData.lastName,
+    birth_date: formatDateForDB(userData.birthDate),
+  });
+
+  setCurrentUser(data.user);
+}
+
+console.log('[Register] Registo concluído');
+
+return data.user;
     } catch (error) {
       console.error('[Register] Erro geral:', error);
       throw error;

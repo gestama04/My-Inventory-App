@@ -228,6 +228,36 @@ export default function SupplementDetailsScreen() {
             </Text>
           </Section>
 
+          {supplement.ai_insights ? (
+  <Section title="Resumo IA">
+    {supplement.ai_insights.summary ? (
+      <Text style={styles.sectionText}>{supplement.ai_insights.summary}</Text>
+    ) : null}
+
+    {supplement.ai_insights.benefits?.length > 0 ? (
+      <>
+        <Text style={styles.sectionText}>Benefícios gerais:</Text>
+        {supplement.ai_insights.benefits.map((item, index) => (
+          <Text key={index} style={styles.sectionText}>• {item}</Text>
+        ))}
+      </>
+    ) : null}
+
+    {supplement.ai_insights.cautions?.length > 0 ? (
+      <>
+        <Text style={styles.sectionText}>Atenção:</Text>
+        {supplement.ai_insights.cautions.map((item, index) => (
+          <Text key={index} style={styles.sectionText}>• {item}</Text>
+        ))}
+      </>
+    ) : null}
+
+    <Text style={styles.dateText}>
+      Informação geral. Não substitui aconselhamento médico.
+    </Text>
+  </Section>
+) : null}
+
           <View style={styles.datesBox}>
             {createdAt ? (
               <Text style={styles.dateText}>Criado: {createdAt}</Text>

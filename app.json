@@ -24,34 +24,37 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-  "expo-router",
-  [
-    "expo-splash-screen",
-    {
-      "image": "./assets/images/vitastreak-FUNDO.png",
-      "backgroundColor": "#010c24"
-    }
-  ],
-  [
-    "expo-notifications",
-    {
-      "icon": "./assets/images/notification-icon.png",
-      "color": "#7c3aed"
-    }
-  ],
-  [
-    "expo-build-properties",
-    {
-      "android": {
-        "compileSdkVersion": 35,
-        "targetSdkVersion": 34,
-        "buildToolsVersion": "35.0.0"
-      }
-    }
-  ],
-  "expo-web-browser",
-  "expo-asset"
+      "expo-router",
+      [
+  "expo-splash-screen",
+  {
+    "image": "./assets/images/vitastreak-FUNDO.png",
+    "backgroundColor": "#010c24",
+    "imageWidth": 200,
+    "resizeMode": "contain"
+  }
 ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#7c3aed"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 34,
+            "buildToolsVersion": "35.0.0"
+          }
+        }
+      ],
+      "expo-web-browser",
+      "expo-asset",
+      "expo-localization"
+    ],
     "experiments": {
       "typedRoutes": true
     },
