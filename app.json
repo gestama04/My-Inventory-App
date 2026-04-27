@@ -28,8 +28,9 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash.png",
+          "image": "./assets/images/vitastreak-FUNDO.png",
           "backgroundColor": "#010c24",
+          "imageWidth": 250,
           "resizeMode": "contain"
         }
       ],

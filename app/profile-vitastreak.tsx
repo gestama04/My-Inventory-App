@@ -28,7 +28,7 @@ import {
 
 export default function ProfileScreen() {
   const router = useRouter()
-  const { currentUser, logout, reloadUser } = useAuth()
+  const { currentUser, logout } = useAuth()
   const { showAlert, AlertComponent } = useCustomAlert()
 
   const [displayName, setDisplayName] = useState('')
@@ -139,7 +139,7 @@ console.log('PROFILE PHOTO UPLOADED:', upload.secure_url)
       if (error) throw error
       console.log('PROFILE UPDATE DONE')
       setPhotoURL(upload.secure_url)
-      await reloadUser?.()
+      
 
       showAlert('Sucesso', 'Foto de perfil atualizada.', [
         { text: 'OK', onPress: () => {} },

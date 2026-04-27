@@ -127,43 +127,46 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     initializeAuth();
 
     // Listener para mudanças de autenticação
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-  console.log('Auth state changed:', event);
+const { data: { subscription } } = supabase.auth.onAuthStateChange(
+  async (event, newSession) => {
+    console.log('Auth state changed:', event)
 
-  if (event === 'INITIAL_SESSION') {
-    return;
+    if (event === 'INITIAL_SESSION') {
+      return
+    }
+
+    if (event === 'USER_UPDATED') {
+      console.log('AUTH USER_UPDATED')
+      setSession(newSession)
+      setCurrentUser(newSession?.user ?? null)
+      setLoading(false)
+      return
+    }
+
+    if (event === 'PASSWORD_RECOVERY') {
+      console.log('🔑 Sessão de recuperação de password')
+      setSession(newSession)
+      setCurrentUser(newSession?.user ?? null)
+      setLoading(false)
+      return
+    }
+
+    setSession(newSession)
+    setCurrentUser(newSession?.user ?? null)
+    setLoading(false)
+
+    if (
+      (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&
+      newSession?.user?.email_confirmed_at
+    ) {
+      await setupNotifications(newSession.user.id)
+    }
+
+    if (event === 'SIGNED_OUT') {
+      clearAllListeners()
+    }
   }
-  if (event === 'USER_UPDATED') {
-  console.log('AUTH USER_UPDATED')
-  setSession(newSession)
-  setCurrentUser(newSession?.user ?? null)
-  setLoading(false)
-  return
-}
-
-  setSession(newSession);
-  setCurrentUser(newSession?.user ?? null);
-  setLoading(false);
-
-  if (event === 'PASSWORD_RECOVERY') {
-  console.log('🔑 Sessão de recuperação de password')
-  setSession(newSession)
-  setCurrentUser(newSession?.user ?? null)
-  setLoading(false)
-  return
-}
-
-  if (
-    (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&
-    newSession?.user?.email_confirmed_at
-  ) {
-    await setupNotifications(newSession.user.id);
-  }
-
-  if (event === 'SIGNED_OUT') {
-    clearAllListeners();
-  }
-});
+)
 
     return () => {
       subscription.unsubscribe();

@@ -81,20 +81,14 @@ useEffect(() => {
 
       const parsed = Linking.parse(url)
       const code = parsed.queryParams?.code
-      if (!code) {
-  const { data } = await supabase.auth.getSession()
-  if (data.session) {
-    console.log('RESET SESSION ALREADY EXISTS')
-    setRecoveryReady(true)
-  }
-}
-      console.log('RESET CODE:', code)
 
       if (typeof code === 'string') {
+        console.log('RESET CODE FOUND')
+
         const { error } = await supabase.auth.exchangeCodeForSession(code)
 
         if (error) {
-          console.error('Erro ao criar sessão recovery:', error)
+          console.error('RESET EXCHANGE ERROR:', error)
           showAlert('Erro', 'O link de recuperação expirou ou é inválido.', [
             { text: 'OK', onPress: () => router.replace('/login-vitastreak' as any) },
           ])
@@ -102,7 +96,18 @@ useEffect(() => {
         }
 
         setRecoveryReady(true)
+        return
       }
+
+      const currentSession = await supabase.auth.getSession()
+
+      if (currentSession.data.session) {
+        console.log('RESET SESSION ALREADY EXISTS')
+        setRecoveryReady(true)
+        return
+      }
+
+      console.log('RESET NO CODE AND NO SESSION')
     } catch (error) {
       console.error('Erro ao processar link reset:', error)
     }
@@ -147,25 +152,36 @@ const handleReset = async () => {
   }
 
   try {
-    setIsLoading(true)
+  setIsLoading(true)
 
-    const { error } = await supabase.auth.updateUser({ password })
-    if (error) throw error
+  const { data: sessionData } = await supabase.auth.getSession()
 
+  if (!sessionData.session) {
     showAlert(
-      'Password atualizada',
-      'A tua palavra-passe foi alterada com sucesso. Faz login com a nova password.',
-      [
-        {
-          text: 'OK',
-          onPress: async () => {
-            await supabase.auth.signOut({ scope: 'global' })
-            router.replace('/login-vitastreak' as any)
-          },
-        },
-      ]
+      'Sessão expirada',
+      'O link de recuperação expirou. Pede um novo email para alterar a password.',
+      [{ text: 'OK', onPress: () => router.replace('/login-vitastreak' as any) }]
     )
-  } catch (error) {
+    return
+  }
+
+  const { error } = await supabase.auth.updateUser({ password })
+
+  if (error) throw error
+
+  await supabase.auth.signOut({ scope: 'global' })
+
+  showAlert(
+    'Password atualizada',
+    'A tua palavra-passe foi alterada com sucesso. Faz login com a nova password.',
+    [
+      {
+        text: 'OK',
+        onPress: () => router.replace('/login-vitastreak' as any),
+      },
+    ]
+  )
+} catch (error) {
     console.error('Erro ao atualizar password:', error)
     showAlert('Erro', 'Não foi possível atualizar a palavra-passe.', [
       { text: 'OK', onPress: () => {} },
