@@ -398,7 +398,16 @@ export async function getSupplementStreak() {
     const scheduledTakes: string[] = []
 
     for (const supplement of supplements || []) {
-      if (!isSupplementScheduledForDate(supplement as Supplement, date)) continue
+      const createdAt = supplement.created_at
+  ? new Date(supplement.created_at)
+  : null
+
+const dayEnd = new Date(date)
+dayEnd.setHours(23, 59, 59, 999)
+
+if (createdAt && createdAt > dayEnd) continue
+
+if (!isSupplementScheduledForDate(supplement as Supplement, date)) continue
 
       const times = getReminderTimes(supplement as Supplement)
 

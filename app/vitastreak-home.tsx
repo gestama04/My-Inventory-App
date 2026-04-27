@@ -49,6 +49,8 @@ useFocusEffect(
   }, [])
 )
 
+const streakEmoji =
+  streak === 0 ? '❄️' : streak >= 30 ? '🏆' : streak >= 7 ? '🔥🔥' : '🔥'
 
   return (
     <View style={styles.container}>
@@ -80,7 +82,7 @@ useFocusEffect(
   ) : (
     <>
       <Text style={styles.summaryText}>
-        🔥 {streak} dia{streak === 1 ? '' : 's'} seguido{streak === 1 ? '' : 's'}
+        {streakEmoji} {streak} dia{streak === 1 ? '' : 's'} seguido{streak === 1 ? '' : 's'}
       </Text>
       <Text style={styles.summarySub}>
   {todayTotal === 0
@@ -130,7 +132,21 @@ useFocusEffect(
 
         <Ionicons name="chevron-forward" size={24} color="white" />
       </TouchableOpacity>
+<TouchableOpacity
+  style={[styles.card, styles.aiCard]}
+  onPress={() => router.push('/ai-routine-review' as any)}
+>
+  <Ionicons name="sparkles-outline" size={32} color="white" />
 
+  <View style={styles.cardText}>
+    <Text style={styles.cardTitle}>Análise IA</Text>
+    <Text style={styles.cardSubtitle}>
+      Rever rotina, ingredientes e pontos a confirmar
+    </Text>
+  </View>
+
+  <Ionicons name="chevron-forward" size={24} color="white" />
+</TouchableOpacity>
       <TouchableOpacity
         style={[styles.card, styles.addCard]}
         onPress={() => router.push('/add-supplement' as any)}
@@ -185,6 +201,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '600',
   },
+  aiCard: {
+  backgroundColor: '#0891b2',
+},
   card: {
     backgroundColor: '#1e293b',
     borderRadius: 22,
