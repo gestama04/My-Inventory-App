@@ -108,6 +108,7 @@ setDisplayName(
       if (result.canceled || !result.assets[0]) return
 
       setSavingPhoto(true)
+      console.log('PROFILE PHOTO START')
 
       const manipResult = await manipulateAsync(
         result.assets[0].uri,
@@ -120,19 +121,23 @@ setDisplayName(
       })
 
       const upload = await uploadImageToCloudinary(
-        `data:image/jpeg;base64,${base64}`,
-        'profiles'
-      )
+  `data:image/jpeg;base64,${base64}`,
+  'profiles'
+)
+
+console.log('PROFILE PHOTO UPLOADED:', upload.secure_url)
 
       const { error } = await supabase.auth.updateUser({
         data: {
           display_name: displayName,
           avatar_url: upload.secure_url,
         },
+        
       })
+      
 
       if (error) throw error
-
+      console.log('PROFILE UPDATE DONE')
       setPhotoURL(upload.secure_url)
       await reloadUser?.()
 
@@ -145,6 +150,7 @@ setDisplayName(
         { text: 'OK', onPress: () => {} },
       ])
     } finally {
+      console.log('PROFILE PHOTO FINALLY')
       setSavingPhoto(false)
     }
   }

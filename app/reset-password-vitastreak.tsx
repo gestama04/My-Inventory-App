@@ -15,7 +15,7 @@ import { Stack, useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons } from '@expo/vector-icons'
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
-
+import * as Linking from 'expo-linking'
 import { supabase } from '../supabase-config'
 import useCustomAlert from '../hooks/useCustomAlert'
 
@@ -29,7 +29,7 @@ export default function ResetPasswordScreen() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [showPasswordRequirements, setShowPasswordRequirements] = useState(false)
-
+  const [recoveryReady, setRecoveryReady] = useState(false)
   const [passwordStrength, setPasswordStrength] = useState({
     score: 0,
     hasMinLength: false,
@@ -72,6 +72,51 @@ export default function ResetPasswordScreen() {
     return { label: 'Muito forte', color: '#10b981' }
   }
 
+useEffect(() => {
+  const handleUrl = async (url: string | null) => {
+    try {
+      console.log('RESET URL:', url)
+
+      if (!url) return
+
+      const parsed = Linking.parse(url)
+      const code = parsed.queryParams?.code
+      if (!code) {
+  const { data } = await supabase.auth.getSession()
+  if (data.session) {
+    console.log('RESET SESSION ALREADY EXISTS')
+    setRecoveryReady(true)
+  }
+}
+      console.log('RESET CODE:', code)
+
+      if (typeof code === 'string') {
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+
+        if (error) {
+          console.error('Erro ao criar sessão recovery:', error)
+          showAlert('Erro', 'O link de recuperação expirou ou é inválido.', [
+            { text: 'OK', onPress: () => router.replace('/login-vitastreak' as any) },
+          ])
+          return
+        }
+
+        setRecoveryReady(true)
+      }
+    } catch (error) {
+      console.error('Erro ao processar link reset:', error)
+    }
+  }
+
+  Linking.getInitialURL().then(handleUrl)
+
+  const subscription = Linking.addEventListener('url', ({ url }) => {
+    handleUrl(url)
+  })
+
+  return () => subscription.remove()
+}, [])
+
 const handleReset = async () => {
   if (!password || !confirmPassword) {
     showAlert('Erro', 'Preenche todos os campos.', [{ text: 'OK', onPress: () => {} }])
@@ -92,13 +137,20 @@ const handleReset = async () => {
     return
   }
 
+  if (!recoveryReady) {
+    showAlert(
+      'Link ainda não preparado',
+      'Abre novamente o link do email ou pede um novo email de recuperação.',
+      [{ text: 'OK', onPress: () => {} }]
+    )
+    return
+  }
+
   try {
     setIsLoading(true)
 
     const { error } = await supabase.auth.updateUser({ password })
     if (error) throw error
-
-    await supabase.auth.signOut({ scope: 'global' })
 
     showAlert(
       'Password atualizada',
@@ -106,7 +158,10 @@ const handleReset = async () => {
       [
         {
           text: 'OK',
-          onPress: () => router.replace('/login-vitastreak' as any),
+          onPress: async () => {
+            await supabase.auth.signOut({ scope: 'global' })
+            router.replace('/login-vitastreak' as any)
+          },
         },
       ]
     )

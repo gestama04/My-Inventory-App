@@ -133,6 +133,13 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   if (event === 'INITIAL_SESSION') {
     return;
   }
+  if (event === 'USER_UPDATED') {
+  console.log('AUTH USER_UPDATED')
+  setSession(newSession)
+  setCurrentUser(newSession?.user ?? null)
+  setLoading(false)
+  return
+}
 
   setSession(newSession);
   setCurrentUser(newSession?.user ?? null);
