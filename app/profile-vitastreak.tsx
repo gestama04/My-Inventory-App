@@ -90,7 +90,7 @@ setDisplayName(
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
-
+      console.log('PROFILE PHOTO START')
       if (status !== 'granted') {
         showAlert('Permissão necessária', 'É necessário acesso à galeria.', [
           { text: 'OK', onPress: () => {} },
@@ -109,24 +109,26 @@ setDisplayName(
 
       setSavingPhoto(true)
       console.log('PROFILE PHOTO START')
-
+      console.log('PROFILE BEFORE MANIPULATE')
       const manipResult = await manipulateAsync(
         result.assets[0].uri,
         [{ resize: { width: 400, height: 400 } }],
         { compress: 0.8, format: SaveFormat.JPEG }
       )
-
+      console.log('PROFILE AFTER MANIPULATE:', manipResult.uri)
+      console.log('PROFILE BEFORE BASE64')
       const base64 = await FileSystem.readAsStringAsync(manipResult.uri, {
         encoding: 'base64',
       })
-
+      console.log('PROFILE AFTER BASE64:', base64.length)
+      console.log('PROFILE BEFORE CLOUDINARY')
       const upload = await uploadImageToCloudinary(
   `data:image/jpeg;base64,${base64}`,
   'profiles'
 )
-
+console.log('PROFILE AFTER CLOUDINARY:', upload.secure_url)
 console.log('PROFILE PHOTO UPLOADED:', upload.secure_url)
-
+console.log('PROFILE BEFORE SUPABASE UPDATE')
       const { error } = await supabase.auth.updateUser({
         data: {
           display_name: displayName,
@@ -134,7 +136,7 @@ console.log('PROFILE PHOTO UPLOADED:', upload.secure_url)
         },
         
       })
-      
+      console.log('PROFILE AFTER SUPABASE UPDATE:', error)
 
       if (error) throw error
       console.log('PROFILE UPDATE DONE')

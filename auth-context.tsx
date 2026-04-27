@@ -130,13 +130,18 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 const { data: { subscription } } = supabase.auth.onAuthStateChange(
   async (event, newSession) => {
     console.log('Auth state changed:', event)
-
+console.log('AUTH EVENT:', event, {
+  hasSession: !!newSession,
+  hasUser: !!newSession?.user,
+  userId: newSession?.user?.id,
+})
     if (event === 'INITIAL_SESSION') {
       return
     }
 
     if (event === 'USER_UPDATED') {
       console.log('AUTH USER_UPDATED')
+      console.log('AUTH USER_UPDATED METADATA:', newSession?.user?.user_metadata)
       setSession(newSession)
       setCurrentUser(newSession?.user ?? null)
       setLoading(false)
@@ -145,6 +150,10 @@ const { data: { subscription } } = supabase.auth.onAuthStateChange(
 
     if (event === 'PASSWORD_RECOVERY') {
       console.log('🔑 Sessão de recuperação de password')
+      console.log('AUTH PASSWORD_RECOVERY SESSION:', {
+  hasSession: !!newSession,
+  hasUser: !!newSession?.user,
+})
       setSession(newSession)
       setCurrentUser(newSession?.user ?? null)
       setLoading(false)

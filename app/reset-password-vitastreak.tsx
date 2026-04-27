@@ -80,12 +80,25 @@ useEffect(() => {
       if (!url) return
 
       const parsed = Linking.parse(url)
+      
+      console.log('RESET PARSED:', JSON.stringify(parsed, null, 2))
+      console.log('RESET QUERY PARAMS:', parsed.queryParams)
+      console.log('RESET PATH:', parsed.path)
+      console.log('RESET HOSTNAME:', parsed.hostname)
       const code = parsed.queryParams?.code
 
       if (typeof code === 'string') {
         console.log('RESET CODE FOUND')
 
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        console.log('RESET EXCHANGE START')
+
+const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+
+console.log('RESET EXCHANGE RESULT:', {
+  hasSession: !!data?.session,
+  hasUser: !!data?.user,
+  error,
+})
 
         if (error) {
           console.error('RESET EXCHANGE ERROR:', error)
@@ -153,9 +166,15 @@ const handleReset = async () => {
 
   try {
   setIsLoading(true)
-
+console.log('RESET SUBMIT START', {
+  recoveryReady,
+  passwordLength: password.length,
+})
   const { data: sessionData } = await supabase.auth.getSession()
-
+console.log('RESET SESSION CHECK:', {
+  hasSession: !!sessionData.session,
+  hasUser: !!sessionData.session?.user,
+})
   if (!sessionData.session) {
     showAlert(
       'Sessão expirada',
@@ -164,9 +183,9 @@ const handleReset = async () => {
     )
     return
   }
-
+console.log('RESET UPDATE USER START')
   const { error } = await supabase.auth.updateUser({ password })
-
+console.log('RESET UPDATE USER RESULT:', error)
   if (error) throw error
 
   await supabase.auth.signOut({ scope: 'global' })
