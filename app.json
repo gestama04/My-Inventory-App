@@ -26,14 +26,13 @@
     "plugins": [
       "expo-router",
       [
-  "expo-splash-screen",
-  {
-    "image": "./assets/images/vitastreak-FUNDO.png",
-    "backgroundColor": "#010c24",
-    "imageWidth": 255,
-    "resizeMode": "contain"
-  }
-],
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash.png",
+          "backgroundColor": "#010c24",
+          "resizeMode": "contain"
+        }
+      ],
       [
         "expo-notifications",
         {
