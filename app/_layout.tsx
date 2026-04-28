@@ -56,6 +56,10 @@ function AppLayout() {
           router.push('/today' as any)
         }
 
+        if (data?.type === 'supplement-reminder' || data?.screen === 'today') {
+  router.push('/today' as any)
+}
+
         if (data?.screen === 'supplement-details' && data?.supplementId) {
           router.push({
             pathname: '/supplement-details',

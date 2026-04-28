@@ -7,24 +7,32 @@ Notifications.setNotificationHandler({
     shouldShowBanner: true,
     shouldShowList: true,
     shouldPlaySound: true,
-    shouldSetBadge: false,
+    shouldSetBadge: true,
   }),
 })
 
 export async function setupSupplementNotifications() {
-  const { status } = await Notifications.requestPermissionsAsync()
+  const { status: existingStatus } = await Notifications.getPermissionsAsync()
+  let finalStatus = existingStatus
 
-  if (status !== 'granted') {
+  if (existingStatus !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync()
+    finalStatus = status
+  }
+
+  if (finalStatus !== 'granted') {
+    console.log('[SupplementNotifications] Permissão negada')
     return false
   }
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('supplements', {
       name: 'Suplementos',
-      importance: Notifications.AndroidImportance.HIGH,
+      importance: Notifications.AndroidImportance.MAX,
       sound: 'default',
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#22c55e',
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     })
   }
 
@@ -32,23 +40,52 @@ export async function setupSupplementNotifications() {
 }
 
 function parseReminderTime(time?: string | null) {
-  const fallback = { hour: 9, minute: 0 }
+  if (!time) return null
 
-  if (!time) return fallback
-
-  const [hourRaw, minuteRaw] = time.split(':')
+  const [hourRaw, minuteRaw] = String(time).slice(0, 5).split(':')
   const hour = Number(hourRaw)
   const minute = Number(minuteRaw)
 
-  if (Number.isNaN(hour) || Number.isNaN(minute)) {
-    return fallback
+  if (
+    Number.isNaN(hour) ||
+    Number.isNaN(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null
   }
 
   return { hour, minute }
 }
 
+function getReminderTimes(supplement: Partial<Supplement>) {
+  if (Array.isArray(supplement.reminder_times) && supplement.reminder_times.length > 0) {
+    return supplement.reminder_times
+      .map((time) => String(time).slice(0, 5))
+      .filter(Boolean)
+  }
+
+  if (supplement.reminder_time) {
+    return [String(supplement.reminder_time).slice(0, 5)]
+  }
+
+  return []
+}
+
+function getDaysOfWeek(supplement: Partial<Supplement>) {
+  if (supplement.frequency_type === 'specific_days') {
+    return supplement.days_of_week?.length ? supplement.days_of_week : []
+  }
+
+  return [1, 2, 3, 4, 5, 6, 0]
+}
+
 export async function cancelSupplementNotifications(notificationIds?: string[] | null) {
   if (!notificationIds || notificationIds.length === 0) return
+
+  console.log('[SupplementNotifications] A cancelar:', notificationIds.length)
 
   await Promise.all(
     notificationIds.map((id) =>
@@ -66,6 +103,8 @@ export async function scheduleSupplementNotifications(
     | 'dosage_amount'
     | 'dosage_unit'
     | 'reminder_time'
+    | 'reminder_times'
+    | 'frequency_type'
     | 'days_of_week'
     | 'is_active'
   >
@@ -73,13 +112,21 @@ export async function scheduleSupplementNotifications(
   const hasPermission = await setupSupplementNotifications()
 
   if (!hasPermission || !supplement.id || supplement.is_active === false) {
+    console.log('[SupplementNotifications] Não agendado:', {
+      hasPermission,
+      id: supplement.id,
+      isActive: supplement.is_active,
+    })
     return []
   }
 
-  const { hour, minute } = parseReminderTime(supplement.reminder_time)
-  const days = supplement.days_of_week?.length
-    ? supplement.days_of_week
-    : [1, 2, 3, 4, 5, 6, 0]
+  const times = getReminderTimes(supplement)
+  const days = getDaysOfWeek(supplement)
+
+  if (times.length === 0 || days.length === 0) {
+    console.log('[SupplementNotifications] Sem horas ou dias válidos')
+    return []
+  }
 
   const dosage =
     supplement.dosage_amount && supplement.dosage_unit
@@ -87,31 +134,59 @@ export async function scheduleSupplementNotifications(
       : null
 
   const body = [supplement.brand, dosage].filter(Boolean).join(' • ')
-
   const ids: string[] = []
 
-  for (const day of days) {
-    const id = await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `Hora de tomar ${supplement.name}`,
-        body: body || 'Marca como tomado no VitaStreak.',
-        sound: 'default',
-        data: {
-          supplementId: supplement.id,
-          screen: 'today',
-        },
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-        weekday: day === 0 ? 1 : day + 1,
-        hour,
-        minute,
-        channelId: 'supplements',
-      },
-    })
+  for (const time of times) {
+    const parsedTime = parseReminderTime(time)
+    if (!parsedTime) continue
 
-    ids.push(id)
+    for (const day of days) {
+      const id = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `Hora de tomar ${supplement.name}`,
+          body: body || 'Marca como tomado no VitaStreak.',
+          sound: 'default',
+          data: {
+            type: 'supplement-reminder',
+            supplementId: supplement.id,
+            screen: 'today',
+          },
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+          weekday: day === 0 ? 1 : day + 1,
+          hour: parsedTime.hour,
+          minute: parsedTime.minute,
+          channelId: 'supplements',
+        },
+      })
+
+      ids.push(id)
+    }
   }
 
+  console.log('[SupplementNotifications] Agendadas:', {
+    supplement: supplement.name,
+    times,
+    days,
+    count: ids.length,
+  })
+
   return ids
+}
+
+export async function debugScheduledSupplementNotifications() {
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync()
+
+  console.log(
+    '[SupplementNotifications] Agendadas agora:',
+    scheduled.map((item) => ({
+      id: item.identifier,
+      title: item.content.title,
+      trigger: item.trigger,
+      data: item.content.data,
+    }))
+  )
+
+  return scheduled
 }

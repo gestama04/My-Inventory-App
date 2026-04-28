@@ -1,12 +1,7 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase } from './supabase-config';
-import { 
-  upsertUserProfile, 
-  updateExpoPushToken,
-  getUserProfile 
-} from './supabase-service';
+import { upsertUserProfile } from './supabase-service';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
 import { User, Session } from '@supabase/supabase-js';
 import { clearAllListeners } from './supabase-listeners';
 
@@ -108,11 +103,6 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         if (currentSession) {
           setSession(currentSession);
           setCurrentUser(currentSession.user);
-          
-          // Configurar notificações se o email estiver verificado
-          if (currentSession.user.email_confirmed_at) {
-            await setupNotifications(currentSession.user.id);
-          }
         } else if (rememberMe !== 'true') {
           // Se não tem sessão e não é para lembrar, limpar
           await AsyncStorage.removeItem('user');
@@ -164,13 +154,6 @@ console.log('AUTH EVENT:', event, {
     setCurrentUser(newSession?.user ?? null)
     setLoading(false)
 
-    if (
-      (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&
-      newSession?.user?.email_confirmed_at
-    ) {
-      await setupNotifications(newSession.user.id)
-    }
-
     if (event === 'SIGNED_OUT') {
       clearAllListeners()
     }
@@ -181,40 +164,6 @@ console.log('AUTH EVENT:', event, {
       subscription.unsubscribe();
     };
   }, []);
-
-  const setupNotifications = async (userId: string) => {
-    try {
-      console.log('🔔 Configurando notificações para usuário logado...');
-
-      
-      // Verificar se já tem token salvo
-      const profile = await getUserProfile(userId);
-      
-      if (!profile?.expo_push_token) {
-        console.log('📱 Solicitando permissões de notificação...');
-        
-        const { status } = await Notifications.requestPermissionsAsync();
-        console.log('Permission status:', status);
-        
-        if (status === 'granted') {
-          const token = await Notifications.getExpoPushTokenAsync({
-            projectId: '3abf848f-326e-4719-a3c6-9c4c60605aa7'
-          });
-          
-          if (token) {
-            await updateExpoPushToken(userId, token.data);
-            console.log('✅ Expo Push Token salvo:', token.data);
-          }
-        } else {
-          console.log('❌ Permissão de notificação negada');
-        }
-      } else {
-        console.log('✅ Token já existe:', profile.expo_push_token);
-      }
-    } catch (tokenError) {
-      console.error('❌ Erro ao configurar notificações:', tokenError);
-    }
-  };
 
   const login = async (email: string, password: string, rememberMe: boolean = false) => {
     try {
@@ -266,9 +215,6 @@ console.log('AUTH EVENT:', event, {
       } else {
         await AsyncStorage.removeItem('savedEmail');
       }
-      
-      // Configurar notificações
-      await setupNotifications(data.user.id);
       
       return data.user;
     } catch (error) {
@@ -348,17 +294,11 @@ return data.user;
     }
   };
 
-  const resetPassword = async (email: string) => {
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: 'vitastreak://reset-password-vitastreak',
-      });
-      
-      if (error) throw error;
-    } catch (error) {
-      throw error;
-    }
-  };
+const resetPassword = async (email: string) => {
+  const { error } = await supabase.auth.resetPasswordForEmail(email);
+
+  if (error) throw error;
+};
 
   const checkEmailExists = async (email: string): Promise<boolean> => {
     // Supabase não tem uma forma direta de verificar se email existe

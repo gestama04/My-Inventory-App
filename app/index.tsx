@@ -97,8 +97,11 @@ const {
 } = await supabase.auth.getUser();
 
 if (userError || !user) {
-  console.log('⚠️ Sessão ainda não está pronta, a aguardar...')
+  console.log('⚠️ Sessão inválida, a enviar para login...')
+  setShowWelcome(false)
+  setShowInitialSetup(false)
   setIsProcessing(false)
+  router.replace('/login-vitastreak' as any)
   return
 }
         // PASSO 3: Se está logado, verificar se já fez setup
@@ -156,7 +159,7 @@ if (userError || !user) {
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      backgroundColor: '#3498db'
+      backgroundColor: '#0f172a'
     }}>
       <ActivityIndicator size="large" color="#FFFFFF" />
     </View>
