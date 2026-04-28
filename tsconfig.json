@@ -27,5 +27,9 @@
     ".expo/types/**/*.ts",
     "expo-env.d.ts",
     "babel.config.js"
-  ]
+  ],
+  "exclude": [
+  "node_modules",
+  "supabase/functions"
+]
 }

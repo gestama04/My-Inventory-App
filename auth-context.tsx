@@ -185,9 +185,7 @@ console.log('AUTH EVENT:', event, {
   const setupNotifications = async (userId: string) => {
     try {
       console.log('🔔 Configurando notificações para usuário logado...');
-      
-      const { NotificationService } = await import('./services/notification-service');
-      await NotificationService.initialize();
+
       
       // Verificar se já tem token salvo
       const profile = await getUserProfile(userId);
@@ -339,21 +337,6 @@ return data.user;
   const logout = async () => {
     try {
       clearAllListeners();
-      
-      const { NotificationService } = await import('./services/notification-service');
-      NotificationService.stopPeriodicStockCheck();
-      
-      // Limpar AsyncStorage
-      await AsyncStorage.removeItem("cachedInventory");
-      await AsyncStorage.removeItem("cachedItemHistory");
-      await AsyncStorage.removeItem("userSettings");
-      await AsyncStorage.removeItem("syncQueue");
-      await AsyncStorage.removeItem("localItemHistory");
-      await AsyncStorage.removeItem("lastStockNotificationTime");
-      
-      if (currentUser) {
-        await AsyncStorage.removeItem("inventory_stats_" + currentUser.id);
-      }
       
       await supabase.auth.signOut();
       await persistUser(null);

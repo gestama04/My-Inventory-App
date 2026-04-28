@@ -1,5 +1,5 @@
 import { supabase } from './supabase-config';
-import { uploadImageToCloudinary, deleteImageFromCloudinary, CloudinaryUploadResult } from './cloudinary-service';
+import { uploadImageToCloudinary } from './cloudinary-service';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
 // ============================================
@@ -161,9 +161,6 @@ export const updateInventoryItem = async (
     try {
       // Obter item atual para deletar foto antiga
       const currentItem = await getInventoryItem(itemId);
-      if (currentItem?.photo_public_id) {
-        await deleteImageFromCloudinary(currentItem.photo_public_id);
-      }
       
       const userId = updates.user_id || currentItem?.user_id;
       const uploadResult = await uploadImageToCloudinary(newPhoto, `inventory/${userId}`);
@@ -196,9 +193,6 @@ export const updateInventoryItem = async (
 export const deleteInventoryItem = async (itemId: string): Promise<void> => {
   // Obter item para deletar foto do Cloudinary
   const item = await getInventoryItem(itemId);
-  if (item?.photo_public_id) {
-    await deleteImageFromCloudinary(item.photo_public_id);
-  }
   
   const { error } = await supabase
     .from('inventory_items')
