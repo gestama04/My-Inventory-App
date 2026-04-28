@@ -174,13 +174,12 @@ console.log('PROFILE BEFORE SUPABASE UPDATE')
     ])
   }
 
-  const sendPasswordReset = async () => {
+const sendPasswordReset = async () => {
   if (!email) return
 
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-  redirectTo: 'vitastreak://reset-password-vitastreak',
-})
-console.log('RESET ERROR:', error)
+  const { error } = await supabase.auth.resetPasswordForEmail(email)
+
+  console.log('RESET ERROR:', error)
 
   if (error) {
     showAlert('Erro', 'Não foi possível enviar o email para alterar a palavra-passe.', [
@@ -191,8 +190,17 @@ console.log('RESET ERROR:', error)
 
   showAlert(
     'Email enviado',
-    'Enviámos um link para alterares a palavra-passe.',
-    [{ text: 'OK', onPress: () => {} }]
+    'Enviámos um código para alterares a palavra-passe.',
+    [
+      {
+        text: 'OK',
+        onPress: () =>
+          router.push({
+            pathname: '/reset-password-code' as any,
+            params: { email },
+          }),
+      },
+    ]
   )
 }
 

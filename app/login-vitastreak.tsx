@@ -24,7 +24,7 @@ import useCustomAlert from '../hooks/useCustomAlert'
 
 export default function LoginScreen() {
   const router = useRouter()
-  const { login, resetPassword } = useAuth()
+  const { login } = useAuth()
   const { showAlert, AlertComponent } = useCustomAlert()
 
   const [email, setEmail] = useState('')
@@ -104,33 +104,47 @@ export default function LoginScreen() {
   }
 
   const handleForgotPassword = async () => {
-    if (!forgotPasswordEmail.trim()) {
-      showAlert('Erro', 'Insere o teu email para redefinir a password.', [
-        { text: 'OK', onPress: () => {} },
-      ])
-      return
-    }
+  const resetEmail = forgotPasswordEmail.trim()
 
-    setIsLoading(true)
-
-    try {
-      await resetPassword(forgotPasswordEmail.trim())
-
-      showAlert(
-        'Email enviado',
-        'Verifica o teu email para redefinir a password.',
-        [{ text: 'OK', onPress: () => setShowForgotPassword(false) }]
-      )
-    } catch (error) {
-      showAlert(
-        'Erro',
-        'Não foi possível enviar o email. Confirma se o email está correto.',
-        [{ text: 'OK', onPress: () => {} }]
-      )
-    } finally {
-      setIsLoading(false)
-    }
+  if (!resetEmail) {
+    showAlert('Erro', 'Insere o teu email para redefinir a password.', [
+      { text: 'OK', onPress: () => {} },
+    ])
+    return
   }
+
+  setIsLoading(true)
+
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail)
+
+    if (error) throw error
+
+    showAlert(
+      'Email enviado',
+      'Enviámos um código para o teu email. Insere-o no próximo ecrã.',
+      [
+        {
+          text: 'OK',
+          onPress: () =>
+            router.push({
+              pathname: '/reset-password-code' as any,
+              params: { email: resetEmail },
+            }),
+        },
+      ]
+    )
+  } catch (error) {
+    console.error('Erro ao enviar reset:', error)
+    showAlert(
+      'Erro',
+      'Não foi possível enviar o email. Confirma se o email está correto.',
+      [{ text: 'OK', onPress: () => {} }]
+    )
+  } finally {
+    setIsLoading(false)
+  }
+}
   
   const handleResendConfirmation = async () => {
   if (!email.trim()) {

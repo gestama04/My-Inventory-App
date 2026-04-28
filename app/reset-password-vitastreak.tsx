@@ -86,6 +86,7 @@ useEffect(() => {
       console.log('RESET QUERY PARAMS:', parsed.queryParams)
       console.log('RESET PATH:', parsed.path)
       console.log('RESET HOSTNAME:', parsed.hostname)
+      
       const code = parsed.queryParams?.code
 
       if (typeof code === 'string') {
@@ -156,14 +157,16 @@ const handleReset = async () => {
     return
   }
 
-  if (!recoveryReady) {
-    showAlert(
-      'Link ainda não preparado',
-      'Abre novamente o link do email ou pede um novo email de recuperação.',
-      [{ text: 'OK', onPress: () => {} }]
-    )
-    return
-  }
+const { data: sessionData } = await supabase.auth.getSession()
+
+if (!recoveryReady && !sessionData.session) {
+  showAlert(
+    'Link ainda não preparado',
+    'Abre novamente o link do email ou pede um novo email de recuperação.',
+    [{ text: 'OK', onPress: () => {} }]
+  )
+  return
+}
 
   try {
   setIsLoading(true)
@@ -171,7 +174,6 @@ console.log('RESET SUBMIT START', {
   recoveryReady,
   passwordLength: password.length,
 })
-  const { data: sessionData } = await supabase.auth.getSession()
 console.log('RESET SESSION CHECK:', {
   hasSession: !!sessionData.session,
   hasUser: !!sessionData.session?.user,
