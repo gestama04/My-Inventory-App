@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { withTimeout } from '../utils/withTimeout'
 import {
   View,
   Text,
@@ -129,13 +130,15 @@ setDisplayName(
 console.log('PROFILE AFTER CLOUDINARY:', upload.secure_url)
 console.log('PROFILE PHOTO UPLOADED:', upload.secure_url)
 console.log('PROFILE BEFORE SUPABASE UPDATE')
-      const { error } = await supabase.auth.updateUser({
-        data: {
-          display_name: displayName,
-          avatar_url: upload.secure_url,
-        },
-        
-      })
+      const { error } = await withTimeout(
+  supabase.auth.updateUser({
+    data: {
+      display_name: displayName,
+      avatar_url: upload.secure_url,
+    },
+  }),
+  12000
+)
       console.log('PROFILE AFTER SUPABASE UPDATE:', error)
 
       if (error) throw error

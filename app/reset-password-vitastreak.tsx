@@ -11,6 +11,7 @@ import {
   View,
   StatusBar,
 } from 'react-native'
+import { withTimeout } from '../utils/withTimeout'
 import { Stack, useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons } from '@expo/vector-icons'
@@ -184,7 +185,10 @@ console.log('RESET SESSION CHECK:', {
     return
   }
 console.log('RESET UPDATE USER START')
-  const { error } = await supabase.auth.updateUser({ password })
+  const { error } = await withTimeout(
+  supabase.auth.updateUser({ password }),
+  12000
+)
 console.log('RESET UPDATE USER RESULT:', error)
   if (error) throw error
 
