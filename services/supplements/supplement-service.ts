@@ -4,6 +4,7 @@ import { Supplement } from '../../types/supplements/supplement'
 import {
   cancelSupplementNotifications,
   scheduleSupplementNotifications,
+  debugScheduledSupplementNotifications,
 } from './supplement-notification-service'
 
 export async function addSupplement(
@@ -43,6 +44,7 @@ export async function addSupplement(
     throw error
   }
 const notificationIds = await scheduleSupplementNotifications(data as Supplement)
+console.log('[SUPP_SERVICE] ADD_NOTIFICATION_IDS', notificationIds)
 
 if (notificationIds.length > 0) {
   await supabase
@@ -323,7 +325,11 @@ export async function updateSupplement(
     .eq('user_id', user.id)
     .single()
 
-  await cancelSupplementNotifications(existing?.notification_ids)
+  console.log('[SUPP_SERVICE] UPDATE_OLD_NOTIFICATION_IDS', existing?.notification_ids)
+
+await cancelSupplementNotifications(existing?.notification_ids)
+
+console.log('[SUPP_SERVICE] UPDATE_AFTER_CANCEL')
 
   let photoUpdate = {}
 
@@ -353,7 +359,7 @@ export async function updateSupplement(
   }
 
   const notificationIds = await scheduleSupplementNotifications(data as Supplement)
-
+console.log('[SUPP_SERVICE] UPDATE_NEW_NOTIFICATION_IDS', notificationIds)
   await supabase
     .from('supplements')
     .update({ notification_ids: notificationIds })
@@ -447,4 +453,44 @@ if (!isSupplementScheduledForDate(supplement as Supplement, date)) continue
   }
 
   return streak
+}
+
+export async function rescheduleAllSupplementNotifications() {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Utilizador não autenticado')
+
+  const { data: supplements, error } = await supabase
+    .from('supplements')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('is_active', true)
+
+  if (error) throw error
+
+  console.log('[SUPP_SERVICE] RESCHEDULE_ALL_START', supplements?.length ?? 0)
+
+  await import('./supplement-notification-service').then(async (mod) => {
+    const Notifications = await import('expo-notifications')
+    await Notifications.cancelAllScheduledNotificationsAsync()
+  })
+
+  for (const supplement of supplements || []) {
+    const ids = await scheduleSupplementNotifications(supplement as Supplement)
+
+    await supabase
+      .from('supplements')
+      .update({ notification_ids: ids })
+      .eq('id', supplement.id)
+      .eq('user_id', user.id)
+
+    console.log('[SUPP_SERVICE] RESCHEDULED_ONE', {
+      name: supplement.name,
+      ids: ids.length,
+    })
+  }
+
+  await debugScheduledSupplementNotifications()
 }

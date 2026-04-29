@@ -49,8 +49,20 @@ useFocusEffect(
   }, [])
 )
 
-const streakEmoji =
-  streak === 0 ? '❄️' : streak >= 30 ? '🏆' : streak >= 7 ? '🔥🔥' : '🔥'
+const getStreakBadge = (days: number) => {
+  if (days <= 0) return '❄️'
+  if (days < 3) return '🔥'
+  if (days < 7) return '🔥🔥'
+  if (days < 14) return '🔥🔥🔥'
+  if (days < 30) return '🥉'
+  if (days < 60) return '🥈'
+  if (days < 90) return '🥇'
+  if (days < 180) return '💎'
+  if (days < 365) return '🏆'
+  return '👑'
+}
+
+const streakEmoji = getStreakBadge(streak)
 
   return (
     <View style={styles.container}>

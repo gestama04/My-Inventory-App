@@ -34,6 +34,8 @@ export async function setupSupplementNotifications() {
       lightColor: '#22c55e',
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     })
+    const channel = await Notifications.getNotificationChannelAsync('supplements')
+console.log('[SUPP_NOTIF] ANDROID_CHANNEL', channel)
   }
 
   return true
@@ -83,15 +85,23 @@ function getDaysOfWeek(supplement: Partial<Supplement>) {
 }
 
 export async function cancelSupplementNotifications(notificationIds?: string[] | null) {
-  if (!notificationIds || notificationIds.length === 0) return
+  if (!notificationIds || notificationIds.length === 0) {
+    console.log('[SUPP_NOTIF] CANCEL_SKIP no ids')
+    return
+  }
 
-  console.log('[SupplementNotifications] A cancelar:', notificationIds.length)
+  console.log('[SUPP_NOTIF] CANCEL_START', notificationIds)
 
   await Promise.all(
     notificationIds.map((id) =>
-      Notifications.cancelScheduledNotificationAsync(id).catch(() => null)
+      Notifications.cancelScheduledNotificationAsync(id)
+        .then(() => console.log('[SUPP_NOTIF] CANCEL_OK', id))
+        .catch((error) => console.log('[SUPP_NOTIF] CANCEL_ERROR', id, error))
     )
   )
+
+  const remaining = await Notifications.getAllScheduledNotificationsAsync()
+  console.log('[SUPP_NOTIF] AFTER_CANCEL_COUNT', remaining.length)
 }
 
 export async function scheduleSupplementNotifications(
@@ -110,7 +120,7 @@ export async function scheduleSupplementNotifications(
   >
 ) {
   const hasPermission = await setupSupplementNotifications()
-
+  console.log('[SUPP_NOTIF] PERMISSION_RESULT', { hasPermission })
   if (!hasPermission || !supplement.id || supplement.is_active === false) {
     console.log('[SupplementNotifications] Não agendado:', {
       hasPermission,
@@ -142,6 +152,7 @@ export async function scheduleSupplementNotifications(
 
     for (const day of days) {
       const id = await Notifications.scheduleNotificationAsync({
+        
         content: {
           title: `Hora de tomar ${supplement.name}`,
           body: body || 'Marca como tomado no VitaStreak.',
@@ -150,8 +161,11 @@ export async function scheduleSupplementNotifications(
             type: 'supplement-reminder',
             supplementId: supplement.id,
             screen: 'today',
+            
           },
+          
         },
+        
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
           weekday: day === 0 ? 1 : day + 1,
@@ -162,6 +176,15 @@ export async function scheduleSupplementNotifications(
       })
 
       ids.push(id)
+      console.log('[SUPP_NOTIF] SCHEDULE_ONE', {
+  id,
+  supplement: supplement.name,
+  time,
+  day,
+  weekday: day === 0 ? 1 : day + 1,
+  hour: parsedTime.hour,
+  minute: parsedTime.minute,
+})
     }
   }
 
@@ -171,7 +194,19 @@ export async function scheduleSupplementNotifications(
     days,
     count: ids.length,
   })
+const scheduled = await Notifications.getAllScheduledNotificationsAsync()
 
+console.log('[SUPP_NOTIF] FINAL_IDS', ids)
+
+console.log(
+  '[SUPP_NOTIF] FINAL_SCHEDULED',
+  scheduled.map((item) => ({
+    id: item.identifier,
+    title: item.content.title,
+    trigger: item.trigger,
+    data: item.content.data,
+  }))
+)
   return ids
 }
 

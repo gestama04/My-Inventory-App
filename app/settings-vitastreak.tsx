@@ -11,7 +11,7 @@ import {
 import { Stack, useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons } from '@expo/vector-icons'
-
+import { rescheduleAllSupplementNotifications } from '../services/supplements/supplement-service'
 import { supabase } from '../supabase-config'
 import useCustomAlert from '../hooks/useCustomAlert'
 
@@ -131,7 +131,32 @@ export default function SettingsScreen() {
               subtitle="VitaStreak 1.0.0"
             />
           </View>
+<View style={styles.card}>
+  <Text style={styles.sectionTitle}>Ajuda</Text>
 
+  <SettingItem
+    icon="build-outline"
+    title="Reparar notificações"
+    subtitle="Usa isto se editares tomas e as notificações deixarem de aparecer. A app limpa e volta a agendar todos os lembretes."
+    onPress={async () => {
+      try {
+        await rescheduleAllSupplementNotifications()
+        showAlert('Notificações reparadas', 'Os lembretes foram limpos e reagendados.', [
+          { text: 'OK', onPress: () => {} },
+        ])
+      } catch (error) {
+        console.error('Erro ao reagendar notificações:', error)
+        showAlert('Erro', 'Não foi possível reparar as notificações.', [
+          { text: 'OK', onPress: () => {} },
+        ])
+      }
+    }}
+  />
+
+  <Text style={styles.helpText}>
+    Em alguns telemóveis Android, o sistema pode atrasar ou bloquear lembretes em segundo plano. Se isso acontecer, abre a app e usa esta opção.
+  </Text>
+</View>
           <Text style={styles.footer}>2026 © VitaStreak</Text>
         </ScrollView>
 
@@ -192,6 +217,12 @@ const styles = StyleSheet.create({
     gap: 14,
     marginBottom: 26,
   },
+  helpText: {
+  color: '#94a3b8',
+  fontSize: 12,
+  lineHeight: 18,
+  marginTop: 6,
+},
   backButton: {
     width: 44,
     height: 44,

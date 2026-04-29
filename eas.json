@@ -8,9 +8,8 @@
     },
     "production": {
       "android": {
-        "buildType": "apk"
-      },
-      "distribution": "internal"
+        "buildType": "app-bundle"
+      }
     }
   },
   "cli": {

@@ -98,7 +98,6 @@ function AppLayout() {
         <Stack.Screen name="setup-vitastreak" />
         <Stack.Screen name="login-vitastreak" />
         <Stack.Screen name="register-vitastreak" />
-        <Stack.Screen name="reset-password-vitastreak" />
         <Stack.Screen name="vitastreak-home" />
         <Stack.Screen name="profile-vitastreak" />
         <Stack.Screen name="settings-vitastreak" />
