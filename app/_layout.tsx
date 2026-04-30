@@ -52,10 +52,6 @@ function AppLayout() {
 
         const data = response.notification.request.content.data
 
-        if (data?.screen === 'today') {
-          router.push('/today' as any)
-        }
-
         if (data?.type === 'supplement-reminder' || data?.screen === 'today') {
   router.push('/today' as any)
 }
@@ -74,7 +70,17 @@ function AppLayout() {
     }
   }, [router, appIsReady])
 
-  StatusBar.setBarStyle(currentTheme === 'dark' ? 'light-content' : 'dark-content')
+  useEffect(() => {
+  StatusBar.setBarStyle(
+    currentTheme === 'dark' ? 'light-content' : 'dark-content'
+  )
+
+  if (Platform.OS === 'android') {
+    StatusBar.setBackgroundColor(
+      currentTheme === 'dark' ? '#0f172a' : '#f9fafb'
+    )
+  }
+}, [currentTheme])
 
   if (Platform.OS === 'android') {
     StatusBar.setBackgroundColor(currentTheme === 'dark' ? '#0f172a' : '#f9fafb')
