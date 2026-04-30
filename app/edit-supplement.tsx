@@ -355,7 +355,11 @@ is_active: true,
         photoBase64 || undefined
       )
 
-      router.replace('/supplements' as any)
+      if (router.canGoBack()) {
+  router.back()
+} else {
+  router.replace('/supplements' as any)
+}
     } catch (error) {
       console.error('Erro ao atualizar suplemento:', error)
       showAlert('Erro', 'Não foi possível atualizar o suplemento.', [

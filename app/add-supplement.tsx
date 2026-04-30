@@ -252,39 +252,41 @@ if (frequencyType === 'specific_days' && daysOfWeek.length === 0) {
     try {
       setLoading(true)
 
-      await addSupplement(
-        {
-          name: name.trim(),
-          brand: brand.trim() || null,
-          main_ingredient: mainIngredient.trim() || null,
-          dosage_amount: dosageAmount ? Number(dosageAmount) : null,
-          dosage_unit: dosageUnit || null,
-          active_ingredients: activeIngredients,
-          serving_size: servingSize.trim() || null,
-          ai_insights: aiInsights || null,
-          container_quantity: containerQuantity
-            ? Number(containerQuantity)
-            : null,
-          instructions_from_label: instructions.trim() || null,
-          reminder_time: cleanedReminderTimes[0],
-reminder_times: cleanedReminderTimes,
-frequency_type: frequencyType,
-times_per_day: cleanedReminderTimes.length,
-days_of_week:
-  frequencyType === 'specific_days'
-    ? daysOfWeek
-    : [1, 2, 3, 4, 5, 6, 0],
-start_date: new Date().toISOString().slice(0, 10),
-interval_days:
-  frequencyType === 'custom_interval'
-    ? Number(intervalDays || 1)
-    : null,
-is_active: true,
-        },
-        photoBase64
-      )
+await addSupplement(
+  {
+    name: name.trim(),
+    brand: brand.trim() || null,
+    main_ingredient: mainIngredient.trim() || null,
+    dosage_amount: dosageAmount ? Number(dosageAmount) : null,
+    dosage_unit: dosageUnit || null,
+    active_ingredients: activeIngredients,
+    serving_size: servingSize.trim() || null,
+    ai_insights: aiInsights || null,
+    container_quantity: containerQuantity ? Number(containerQuantity) : null,
+    instructions_from_label: instructions.trim() || null,
+    reminder_time: cleanedReminderTimes[0],
+    reminder_times: cleanedReminderTimes,
+    frequency_type: frequencyType,
+    times_per_day: cleanedReminderTimes.length,
+    days_of_week:
+      frequencyType === 'specific_days'
+        ? daysOfWeek
+        : [1, 2, 3, 4, 5, 6, 0],
+    start_date: new Date().toISOString().slice(0, 10),
+    interval_days:
+      frequencyType === 'custom_interval'
+        ? Number(intervalDays || 1)
+        : null,
+    is_active: true,
+  },
+  photoBase64
+)
 
-      router.replace('/supplements' as any)
+if (router.canGoBack()) {
+  router.back()
+} else {
+  router.replace('/supplements' as any)
+}
     } catch (error) {
       console.error('Erro ao guardar suplemento:', error)
       showAlert('Erro', 'Não foi possível guardar o suplemento.', [
