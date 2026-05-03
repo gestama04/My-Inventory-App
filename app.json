@@ -35,6 +35,9 @@
         }
       ],
       [
+  "./plugins/withAdiRegistration.cjs"
+],
+      [
         "expo-notifications",
         {
           "icon": "./assets/images/notification-icon.png",
