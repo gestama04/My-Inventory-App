@@ -59,30 +59,30 @@ export default function VitaStreakHome() {
   const safeTime = (t?: string | null) => t ?? ''
 
   const getGreetingData = () => {
-    const hour = new Date().getHours()
+  const hour = new Date().getHours()
 
-    if (hour < 12) {
-      return {
-        text: 'Bom dia',
-        emoji: '☀️',
-        sub: 'Começa forte hoje 💪',
-      }
-    }
-
-    if (hour < 20) {
-      return {
-        text: 'Boa tarde',
-        emoji: '🌤️',
-        sub: 'Continua consistente 🔥',
-      }
-    }
-
+  if (hour >= 6 && hour < 12) {
     return {
-      text: 'Boa noite',
-      emoji: '🌙',
-      sub: 'Fecha o dia em grande ✨',
+      text: 'Bom dia',
+      emoji: '☀️',
+      sub: 'Começa forte hoje 💪',
     }
   }
+
+  if (hour >= 12 && hour < 20) {
+    return {
+      text: 'Boa tarde',
+      emoji: '🌤️',
+      sub: 'Continua consistente 🔥',
+    }
+  }
+
+  return {
+    text: 'Boa noite',
+    emoji: '🌙',
+    sub: 'Fecha o dia em grande ✨',
+  }
+}
 
   const getStreakBadge = (days: number) => {
     if (days <= 0) return '❄️'
@@ -109,9 +109,55 @@ export default function VitaStreakHome() {
     return '#22c55e'
   }
 
+  const getStreakTheme = (emoji: string) => {
+  if (emoji.includes('❄️')) {
+    return {
+      glow: '#67e8f9',
+      card: '#0b2433',
+      soft: 'rgba(103,232,249,0.16)',
+      border: 'rgba(103,232,249,0.42)',
+    }
+  }
+
+  if (emoji.includes('🔥')) {
+  return {
+    glow: '#fb923c',
+    card: '#41200a',
+    soft: 'rgba(249,115,22,0.18)',
+    border: 'rgba(251,146,60,0.55)',
+  }
+}
+
+  if (emoji.includes('💎')) {
+    return {
+      glow: '#38bdf8',
+      card: '#082f49',
+      soft: 'rgba(56,189,248,0.18)',
+      border: 'rgba(56,189,248,0.48)',
+    }
+  }
+
+  if (emoji.includes('🏆') || emoji.includes('👑') || emoji.includes('🥇')) {
+    return {
+      glow: '#facc15',
+      card: '#2a2108',
+      soft: 'rgba(250,204,21,0.18)',
+      border: 'rgba(250,204,21,0.48)',
+    }
+  }
+
+  return {
+    glow: '#7dd3fc',
+    card: '#101c34',
+    soft: 'rgba(125,211,252,0.16)',
+    border: 'rgba(125,211,252,0.42)',
+  }
+}
+
   const greeting = getGreetingData()
   const streakEmoji = getStreakBadge(streak)
   const ringColor = getStreakColor(streakEmoji)
+  const streakTheme = getStreakTheme(streakEmoji)
   const ringOffset = RING_CIRCUMFERENCE * (1 - progress)
 
   const triggerConfetti = () => {
@@ -262,12 +308,21 @@ export default function VitaStreakHome() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.heroCard}>
+        <View
+  style={[
+    styles.heroCard,
+    {
+      backgroundColor: streakTheme.card,
+      borderColor: streakTheme.border,
+      shadowColor: streakTheme.glow,
+    },
+  ]}
+>
           <View style={{ flex: 1 }}>
             <Text style={styles.heroLabel}>{streakEmoji} Streak Atual</Text>
 
             {loading ? (
-              <ActivityIndicator color="#22c55e" style={{ marginTop: 18 }} />
+              <ActivityIndicator color="#7dd3fc" style={{ marginTop: 18 }} />
             ) : (
               <>
                 <Text style={styles.streakNumber}>{streak}</Text>
@@ -339,7 +394,7 @@ export default function VitaStreakHome() {
 
         {loading ? (
           <View style={styles.loadingCard}>
-            <ActivityIndicator color="#22c55e" />
+            <ActivityIndicator color="#7dd3fc" />
           </View>
         ) : todayItems.length === 0 ? (
           <TouchableOpacity
@@ -347,7 +402,7 @@ export default function VitaStreakHome() {
             onPress={() => router.push('/add-supplement' as any)}
             activeOpacity={0.85}
           >
-            <Ionicons name="add-circle-outline" size={28} color="#22c55e" />
+            <Ionicons name="add-circle-outline" size={28} color="#7dd3fc" />
             <Text style={styles.emptyTitle}>Adicionar primeiro suplemento</Text>
             <Text style={styles.emptyText}>
               Cria uma rotina e os lembretes aparecem aqui.
@@ -368,7 +423,7 @@ export default function VitaStreakHome() {
                   <Image source={{ uri: item.photo_url }} style={styles.supplementImage} />
                 ) : (
                   <View style={styles.supplementIcon}>
-                    <MaterialCommunityIcons name="pill" size={22} color="#86efac" />
+                    <MaterialCommunityIcons name="pill" size={22} color="#7dd3fc" />
                   </View>
                 )}
 
@@ -396,19 +451,19 @@ export default function VitaStreakHome() {
 
         <View style={styles.quickActions}>
   <QuickAction
-    icon={<MaterialCommunityIcons name="pill" size={24} color="#86efac" />}
+    icon={<MaterialCommunityIcons name="pill" size={24} color="#7dd3fc" />}
     title="Ver suplementos"
     text={`${totalSupplements} guardados`}
     onPress={() => router.push('/supplements' as any)}
   />
 
   <QuickAction
-    highlighted
-    icon={<Ionicons name="add" size={26} color="white" />}
-    title="Adicionar suplemento"
-    text="Nova toma, com foto por IA"
-    onPress={() => router.push('/add-supplement' as any)}
-  />
+  highlighted
+  icon={<Ionicons name="add" size={26} color="#071124" />}
+  title="Adicionar suplemento"
+  text="Nova toma, com foto por IA"
+  onPress={() => router.push('/add-supplement' as any)}
+/>
 
   <QuickAction
     icon={<Ionicons name="sparkles-outline" size={24} color="#c4b5fd" />}
@@ -452,7 +507,7 @@ function QuickAction({
       <Ionicons
   name="chevron-forward"
   size={22}
-  color={highlighted ? '#86efac' : '#64748b'}
+  color={highlighted ? '#bae6fd' : '#64748b'}
 />
     </TouchableOpacity>
   )
@@ -557,20 +612,20 @@ quickActionRow: {
   gap: 14,
 },
 quickActionRowHighlighted: {
-  backgroundColor: 'rgba(34,197,94,0.16)',
-  borderColor: 'rgba(34,197,94,0.42)',
+  backgroundColor: 'rgba(125,211,252,0.16)',
+  borderColor: 'rgba(125,211,252,0.42)',
 },
 quickActionRowIcon: {
   width: 48,
   height: 48,
   borderRadius: 16,
-  backgroundColor: 'rgba(34,197,94,0.14)',
+  backgroundColor: 'rgba(125,211,252,0.14)',
   justifyContent: 'center',
   alignItems: 'center',
 },
 quickActionRowIconHighlighted: {
   borderRadius: 24,
-  backgroundColor: '#22c55e',
+  backgroundColor: '#7dd3fc',
 },
 quickActionRowTitle: {
   color: 'white',
@@ -649,6 +704,10 @@ quickActionsTitle: {
     borderRadius: 28,
     padding: 20,
     borderWidth: 1,
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
     borderColor: 'rgba(255,255,255,0.08)',
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -656,11 +715,11 @@ quickActionsTitle: {
     marginBottom: 26,
   },
   heroLabel: {
-    color: '#f8fafc',
-    fontSize: 15,
-    fontWeight: '900',
-    marginBottom: 10,
-  },
+  color: '#f8fafc',
+  fontSize: 15,
+  fontWeight: '900',
+  marginBottom: 10,
+},
   streakNumber: {
     color: 'white',
     fontSize: 46,
@@ -702,11 +761,11 @@ quickActionsTitle: {
     fontWeight: '900',
   },
   sectionAction: {
-    color: '#22c55e',
-    fontSize: 14,
-    fontWeight: '900',
-    marginTop: 5,
-  },
+  color: '#7dd3fc',
+  fontSize: 14,
+  fontWeight: '900',
+  marginTop: 5,
+},
   todayStatus: {
     color: '#cbd5e1',
     marginTop: 4,
@@ -714,18 +773,19 @@ quickActionsTitle: {
     fontWeight: '700',
   },
   markAllButton: {
-    backgroundColor: 'rgba(34,197,94,0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.42)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
+  backgroundColor: 'rgba(125,211,252,0.16)',
+  borderWidth: 1,
+  borderColor: 'rgba(125,211,252,0.42)',
+  paddingHorizontal: 12,
+  paddingVertical: 8,
+  borderRadius: 999,
+},
   markAllText: {
-    color: '#86efac',
-    fontSize: 13,
-    fontWeight: '900',
-  },
+  color: '#bae6fd',
+  fontSize: 13,
+  fontWeight: '900',
+},
+
   loadingCard: {
     backgroundColor: '#101c34',
     borderRadius: 20,
@@ -764,8 +824,8 @@ quickActionsTitle: {
     gap: 12,
   },
   todayItemDone: {
-  backgroundColor: '#12382f',
-  borderColor: 'rgba(34,197,94,0.55)',
+  backgroundColor: 'rgba(14,116,144,0.28)',
+  borderColor: 'rgba(125,211,252,0.50)',
 },
   supplementImage: {
     width: 46,
@@ -774,13 +834,13 @@ quickActionsTitle: {
     backgroundColor: '#1e293b',
   },
   supplementIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    backgroundColor: 'rgba(34,197,94,0.14)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  width: 46,
+  height: 46,
+  borderRadius: 14,
+  backgroundColor: 'rgba(125,211,252,0.14)',
+  justifyContent: 'center',
+  alignItems: 'center',
+},
   todayName: {
     color: 'white',
     fontSize: 16,
@@ -801,8 +861,8 @@ quickActionsTitle: {
     alignItems: 'center',
   },
   checkCircleDone: {
-    backgroundColor: '#22c55e',
-  },
+  backgroundColor: '#7dd3fc',
+},
   confettiLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 50,
