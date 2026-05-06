@@ -268,10 +268,10 @@ const sendPasswordReset = async () => {
 
           <View style={styles.menuCard}>
             <MenuItem
-              icon="settings-outline"
-              title="Definições"
-              onPress={() => router.push('/settings-vitastreak' as any)}
-            />
+  icon="calendar-outline"
+  title="Histórico"
+  onPress={() => router.push('/history' as any)}
+/>
             <MenuItem
               icon="nutrition-outline"
               title="Os meus suplementos"

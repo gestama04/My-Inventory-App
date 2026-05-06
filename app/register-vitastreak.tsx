@@ -20,6 +20,9 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view
 import { useAuth } from '../auth-context'
 import useCustomAlert from '../hooks/useCustomAlert'
 
+const DEFAULT_BIRTH_DATE = new Date(1990, 0, 1)
+const MIN_BIRTH_DATE = new Date(1900, 0, 1)
+
 export default function RegisterScreen() {
   const router = useRouter()
   const { register, checkEmailExists } = useAuth()
@@ -216,15 +219,16 @@ export default function RegisterScreen() {
 
               {showDatePicker && (
                 <DateTimePicker
-                  value={birthDate || new Date()}
-                  mode="date"
-                  display="default"
-                  maximumDate={new Date()}
-                  onChange={(event, selectedDate) => {
-                    setShowDatePicker(false)
-                    if (selectedDate) setBirthDate(selectedDate)
-                  }}
-                />
+  value={birthDate || DEFAULT_BIRTH_DATE}
+  mode="date"
+  display="default"
+  minimumDate={MIN_BIRTH_DATE}
+  maximumDate={new Date()}
+  onChange={(event, selectedDate) => {
+    setShowDatePicker(false)
+    if (selectedDate) setBirthDate(selectedDate)
+  }}
+/>
               )}
 
               <TextInput

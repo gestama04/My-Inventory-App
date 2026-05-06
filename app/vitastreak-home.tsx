@@ -22,6 +22,8 @@ import {
   markSupplementTaken,
   unmarkSupplementTaken,
   TodaySupplement,
+  getSupplementHistoryDays,
+  SupplementHistoryDay,
 } from '../services/supplements/supplement-service'
 
 const RING_SIZE = 108
@@ -30,6 +32,14 @@ const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
 
 const { width } = Dimensions.get('window')
+
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
 
 export default function VitaStreakHome() {
   const router = useRouter()
@@ -40,7 +50,7 @@ export default function VitaStreakHome() {
   const [todayItems, setTodayItems] = useState<TodaySupplement[]>([])
   const [streak, setStreak] = useState(0)
   const [confettiKey, setConfettiKey] = useState(0)
-
+  const [weekDays, setWeekDays] = useState<SupplementHistoryDay[]>([])
   const avatarUrl =
     currentUser?.user_metadata?.avatar_url ||
     currentUser?.user_metadata?.picture ||
@@ -168,15 +178,17 @@ export default function VitaStreakHome() {
     try {
       setLoading(true)
 
-      const [supplements, today, currentStreak] = await Promise.all([
-        getSupplements(),
-        getTodaySupplements(),
-        getSupplementStreak(),
-      ])
+      const [supplements, today, currentStreak, historyDays] = await Promise.all([
+  getSupplements(),
+  getTodaySupplements(),
+  getSupplementStreak(),
+  getSupplementHistoryDays(7),
+])
 
-      setTotalSupplements(supplements.length)
-      setTodayItems(today)
-      setStreak(currentStreak)
+setTotalSupplements(supplements.length)
+setTodayItems(today)
+setStreak(currentStreak)
+setWeekDays(historyDays)
     } catch (error) {
       console.error('Erro ao carregar home:', error)
     } finally {
@@ -229,6 +241,8 @@ export default function VitaStreakHome() {
       }
 
       await refreshStreak()
+      const historyDays = await getSupplementHistoryDays(7)
+setWeekDays(historyDays)
     } catch (error) {
       console.error('Erro ao atualizar toma:', error)
       setTodayItems(previous)
@@ -262,6 +276,8 @@ export default function VitaStreakHome() {
       )
 
       await refreshStreak()
+      const historyDays = await getSupplementHistoryDays(7)
+setWeekDays(historyDays)
     } catch (error) {
       console.error('Erro ao marcar todas as tomas:', error)
       setTodayItems(previous)
@@ -308,7 +324,7 @@ export default function VitaStreakHome() {
           </TouchableOpacity>
         </View>
 
-        <View
+<View
   style={[
     styles.heroCard,
     {
@@ -318,55 +334,58 @@ export default function VitaStreakHome() {
     },
   ]}
 >
-          <View style={{ flex: 1 }}>
-            <Text style={styles.heroLabel}>{streakEmoji} Streak Atual</Text>
+  <View style={styles.heroTop}>
+    <View style={{ flex: 1 }}>
+      <Text style={styles.heroLabel}>{streakEmoji} Streak Atual</Text>
 
-            {loading ? (
-              <ActivityIndicator color="#7dd3fc" style={{ marginTop: 18 }} />
-            ) : (
-              <>
-                <Text style={styles.streakNumber}>{streak}</Text>
-                <Text style={styles.streakText}>
-                  dia{streak === 1 ? '' : 's'} seguido
-                  {streak === 1 ? '' : 's'}
-                </Text>
-              </>
-            )}
-          </View>
+      {loading ? (
+        <ActivityIndicator color="#7dd3fc" style={{ marginTop: 18 }} />
+      ) : (
+        <>
+          <Text style={styles.streakNumber}>{streak}</Text>
+          <Text style={styles.streakText}>
+            dia{streak === 1 ? '' : 's'} seguido{streak === 1 ? '' : 's'}
+          </Text>
+        </>
+      )}
+    </View>
 
-          <View style={styles.ringBox}>
-            <Svg width={RING_SIZE} height={RING_SIZE}>
-              <Circle
-                cx={RING_SIZE / 2}
-                cy={RING_SIZE / 2}
-                r={RING_RADIUS}
-                stroke="rgba(255,255,255,0.12)"
-                strokeWidth={RING_STROKE}
-                fill="transparent"
-              />
+    <View style={styles.ringBox}>
+      <Svg width={RING_SIZE} height={RING_SIZE}>
+        <Circle
+          cx={RING_SIZE / 2}
+          cy={RING_SIZE / 2}
+          r={RING_RADIUS}
+          stroke="rgba(255,255,255,0.12)"
+          strokeWidth={RING_STROKE}
+          fill="transparent"
+        />
 
-              <Circle
-                cx={RING_SIZE / 2}
-                cy={RING_SIZE / 2}
-                r={RING_RADIUS}
-                stroke={ringColor}
-                strokeWidth={RING_STROKE}
-                fill="transparent"
-                strokeDasharray={RING_CIRCUMFERENCE}
-                strokeDashoffset={ringOffset}
-                strokeLinecap="round"
-                rotation="-90"
-                origin={`${RING_SIZE / 2}, ${RING_SIZE / 2}`}
-              />
-            </Svg>
+        <Circle
+          cx={RING_SIZE / 2}
+          cy={RING_SIZE / 2}
+          r={RING_RADIUS}
+          stroke={ringColor}
+          strokeWidth={RING_STROKE}
+          fill="transparent"
+          strokeDasharray={RING_CIRCUMFERENCE}
+          strokeDashoffset={ringOffset}
+          strokeLinecap="round"
+          rotation="-90"
+          origin={`${RING_SIZE / 2}, ${RING_SIZE / 2}`}
+        />
+      </Svg>
 
-            <View style={styles.ringCenter}>
-              <Text style={styles.ringEmoji}>{streakEmoji}</Text>
-              <Text style={styles.ringPercent}>{Math.round(progress * 100)}%</Text>
-            </View>
-          </View>
-        </View>
+      <View style={styles.ringCenter}>
+  <Text style={styles.ringPercentLarge}>
+    {Math.round(progress * 100)}%
+  </Text>
+</View>
+    </View>
+  </View>
 
+  <WeeklyStatusWidget days={weekDays} />
+</View>
         <View style={styles.sectionHeader}>
           <View>
             <Text style={styles.sectionTitle}>Hoje</Text>
@@ -445,6 +464,7 @@ export default function VitaStreakHome() {
             )
           })
         )}
+
         <View style={styles.quickActionsHeader}>
   <Text style={styles.quickActionsTitle}>Ações rápidas</Text>
 </View>
@@ -472,7 +492,47 @@ export default function VitaStreakHome() {
     onPress={() => router.push('/ai-routine-review' as any)}
   />
 </View>
-      </ScrollView> 
+      </ScrollView>
+    </View>
+  )
+}
+function WeeklyStatusWidget({ days }: { days: SupplementHistoryDay[] }) {
+  const last7Days = Array.from({ length: 7 }).map((_, index) => {
+    const date = new Date()
+    date.setDate(date.getDate() - (6 - index))
+
+    const dateString = getLocalDateString(date)
+    const found = days.find((day) => day.date === dateString)
+
+    const label = date
+      .toLocaleDateString('pt-PT', { weekday: 'short' })
+      .replace('.', '')
+      .slice(0, 3)
+
+    const hasTakes = !!found && found.takes.length > 0
+    const completed = hasTakes && found.takes.every((take) => take.taken)
+
+    return { date: dateString, label, hasTakes, completed }
+  })
+
+  return (
+    <View style={styles.weekDaysRow}>
+      {last7Days.map((day) => (
+        <View key={day.date} style={styles.weekDayItem}>
+          <Text style={styles.weekDayLabel}>{day.label}</Text>
+
+          <View
+            style={[
+              styles.weekDot,
+              !day.hasTakes
+                ? styles.weekDotEmpty
+                : day.completed
+                  ? styles.weekDotDone
+                  : styles.weekDotMissed,
+            ]}
+          />
+        </View>
+      ))}
     </View>
   )
 }
@@ -611,6 +671,65 @@ quickActionRow: {
   alignItems: 'center',
   gap: 14,
 },
+ringPercentLarge: {
+  color: 'white',
+  fontSize: 20,
+  fontWeight: '900',
+},
+weekDot: {
+  width: 10,
+  height: 10,
+  borderRadius: 5,
+},
+
+weekDotDone: {
+  backgroundColor: 'rgba(74, 222, 128, 0.72)',
+},
+
+weekDotMissed: {
+  backgroundColor: 'rgba(248, 113, 113, 0.45)',
+},
+
+weekDotEmpty: {
+  backgroundColor: 'rgba(148, 163, 184, 0.14)',
+},
+floatingCoachButton: {
+  position: 'absolute',
+  right: 22,
+  bottom: 28,
+  width: 62,
+  height: 62,
+  borderRadius: 31,
+  backgroundColor: '#7dd3fc',
+  justifyContent: 'center',
+  alignItems: 'center',
+  shadowColor: '#7dd3fc',
+  shadowOpacity: 0.35,
+  shadowRadius: 16,
+  shadowOffset: { width: 0, height: 0 },
+  elevation: 8,
+  borderWidth: 2,
+  borderColor: 'rgba(255,255,255,0.45)',
+},
+
+weekDaysRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  marginTop: 10,
+},
+
+weekDayItem: {
+  alignItems: 'center',
+  gap: 7,
+},
+
+weekDayLabel: {
+  color: 'rgba(203, 213, 225, 0.75)',
+  fontSize: 11,
+  opacity: 0.72,
+  fontWeight: '900',
+  textTransform: 'uppercase',
+},
 quickActionRowHighlighted: {
   backgroundColor: 'rgba(125,211,252,0.16)',
   borderColor: 'rgba(125,211,252,0.42)',
@@ -674,6 +793,11 @@ quickActionsTitle: {
     fontWeight: '900',
     lineHeight: 30,
   },
+  heroTop: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+},
   greetingEmoji: {
     fontSize: 22,
     lineHeight: 28,
@@ -709,11 +833,9 @@ quickActionsTitle: {
     shadowOffset: { width: 0, height: 0 },
     elevation: 4,
     borderColor: 'rgba(255,255,255,0.08)',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     marginBottom: 26,
   },
+  
   heroLabel: {
   color: '#f8fafc',
   fontSize: 15,

@@ -94,13 +94,18 @@ function getDateString(date = new Date()) {
   return `${year}-${month}-${day}`
 }
 
+function normalizeTime(time?: string | null) {
+  if (!time) return ''
+  return String(time).slice(0, 5)
+}
+
 function getReminderTimes(supplement: Supplement) {
   if (Array.isArray(supplement.reminder_times) && supplement.reminder_times.length > 0) {
-    return supplement.reminder_times
+    return supplement.reminder_times.map(normalizeTime).filter(Boolean)
   }
 
   if (supplement.reminder_time) {
-    return [supplement.reminder_time.slice(0, 5)]
+    return [normalizeTime(supplement.reminder_time)]
   }
 
   return []
@@ -394,31 +399,33 @@ export async function getSupplementStreak() {
   if (logsError) throw logsError
 
   const logsSet = new Set(
-    (logs || []).map(
-      (log: any) => `${log.taken_date}-${log.supplement_id}-${log.reminder_time}`
-    )
+  (logs || []).map(
+    (log: any) =>
+      `${log.taken_date}-${log.supplement_id}-${normalizeTime(log.reminder_time)}`
   )
+)
 
   const isDayComplete = (date: Date) => {
     const dateString = getDateString(date)
     const scheduledTakes: string[] = []
 
     for (const supplement of supplements || []) {
-      const createdAt = supplement.created_at
-  ? new Date(supplement.created_at)
+      const supplementStartDate = supplement.start_date
+  ? new Date(`${supplement.start_date}T00:00:00`)
   : null
 
-const dayEnd = new Date(date)
-dayEnd.setHours(23, 59, 59, 999)
+const currentDay = new Date(`${getDateString(date)}T00:00:00`)
 
-if (createdAt && createdAt > dayEnd) continue
+if (supplementStartDate && supplementStartDate > currentDay) {
+  continue
+}
 
 if (!isSupplementScheduledForDate(supplement as Supplement, date)) continue
 
       const times = getReminderTimes(supplement as Supplement)
 
       for (const time of times) {
-        scheduledTakes.push(`${dateString}-${supplement.id}-${time}`)
+        scheduledTakes.push(`${dateString}-${supplement.id}-${normalizeTime(time)}`)
       }
     }
 
@@ -493,4 +500,195 @@ export async function rescheduleAllSupplementNotifications() {
   }
 
   await debugScheduledSupplementNotifications()
+}
+export type SupplementHistoryLog = {
+  id: string
+  supplement_id: string
+  taken_date: string
+  reminder_time: string
+  status: string
+  taken_at: string | null
+  supplement?: {
+    name: string
+    brand?: string | null
+    photo_url?: string | null
+  } | null
+}
+
+export async function getSupplementHistory(days = 30) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Utilizador não autenticado')
+
+  const fromDate = new Date()
+  fromDate.setDate(fromDate.getDate() - days)
+
+  const from = getDateString(fromDate)
+
+  const { data, error } = await supabase
+    .from('supplement_logs')
+    .select(`
+      id,
+      supplement_id,
+      taken_date,
+      reminder_time,
+      status,
+      taken_at,
+      supplement:supplements (
+        name,
+        brand,
+        photo_url
+      )
+    `)
+    .eq('user_id', user.id)
+    .gte('taken_date', from)
+    .order('taken_date', { ascending: false })
+    .order('reminder_time', { ascending: true })
+
+  if (error) throw error
+
+  return (data || []).map((log: any) => ({
+    id: log.id,
+    supplement_id: log.supplement_id,
+    taken_date: log.taken_date,
+    reminder_time: normalizeTime(log.reminder_time),
+    status: log.status,
+    taken_at: log.taken_at,
+    supplement: Array.isArray(log.supplement)
+      ? log.supplement[0] ?? null
+      : log.supplement ?? null,
+  })) as SupplementHistoryLog[]
+}
+export type SupplementHistoryTake = {
+  id: string
+  supplement_id: string
+  taken_date: string
+  reminder_time: string
+  taken: boolean
+  supplement: {
+    name: string
+    brand?: string | null
+    photo_url?: string | null
+  }
+}
+
+export type SupplementHistoryDay = {
+  date: string
+  takes: SupplementHistoryTake[]
+}
+
+export async function getSupplementHistoryDays(days = 30) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Utilizador não autenticado')
+
+  const today = new Date()
+  const fromDate = new Date()
+  fromDate.setDate(today.getDate() - days + 1)
+
+  const from = getDateString(fromDate)
+
+  const { data: supplements, error: supplementsError } = await supabase
+    .from('supplements')
+    .select('*')
+    .eq('user_id', user.id)
+
+  if (supplementsError) throw supplementsError
+
+  const { data: logs, error: logsError } = await supabase
+    .from('supplement_logs')
+    .select('supplement_id, taken_date, reminder_time')
+    .eq('user_id', user.id)
+    .gte('taken_date', from)
+
+  if (logsError) throw logsError
+
+  const logsSet = new Set(
+    (logs || []).map(
+      (log: any) =>
+        `${log.taken_date}-${log.supplement_id}-${normalizeTime(log.reminder_time)}`
+    )
+  )
+
+  const result: SupplementHistoryDay[] = []
+
+  for (let i = 0; i < days; i++) {
+    const date = new Date(today)
+    date.setDate(today.getDate() - i)
+
+    const dateString = getDateString(date)
+    const takes: SupplementHistoryTake[] = []
+
+    for (const supplement of supplements || []) {
+      const createdAt = supplement.created_at
+        ? new Date(supplement.created_at)
+        : null
+
+      const dayEnd = new Date(date)
+      dayEnd.setHours(23, 59, 59, 999)
+
+      if (createdAt && createdAt > dayEnd) continue
+      if (!isSupplementScheduledForDate(supplement as Supplement, date)) continue
+
+      const times = getReminderTimes(supplement as Supplement)
+
+      for (const time of times) {
+        const normalizedTime = normalizeTime(time)
+        const key = `${dateString}-${supplement.id}-${normalizedTime}`
+
+        takes.push({
+          id: key,
+          supplement_id: supplement.id,
+          taken_date: dateString,
+          reminder_time: normalizedTime,
+          taken: logsSet.has(key),
+          supplement: {
+            name: supplement.name,
+            brand: supplement.brand,
+            photo_url: supplement.photo_url,
+          },
+        })
+      }
+    }
+
+    if (takes.length > 0) {
+      result.push({
+        date: dateString,
+        takes: takes.sort((a, b) => a.reminder_time.localeCompare(b.reminder_time)),
+      })
+    }
+  }
+
+  return result
+}
+export async function clearSupplementHistory() {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Utilizador não autenticado')
+
+  const today = getDateString()
+
+  await supabase
+    .from('supplement_logs')
+    .delete()
+    .eq('user_id', user.id)
+
+  const { error } = await supabase
+    .from('history_clear_state')
+    .upsert(
+      {
+        user_id: user.id,
+        cleared_before: today,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    )
+
+  if (error) throw error
 }

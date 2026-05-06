@@ -27,11 +27,6 @@ function formatDate(value?: string | null) {
   })
 }
 
-function formatTime(value?: string | null) {
-  if (!value) return 'Sem hora definida'
-  return value.slice(0, 5)
-}
-
 function formatTimes(supplement: Supplement) {
   const times =
     Array.isArray(supplement.reminder_times) && supplement.reminder_times.length > 0
@@ -44,12 +39,34 @@ function formatTimes(supplement: Supplement) {
 
   return times
     .map((time) => String(time).slice(0, 5))
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
     .join(', ')
 }
 
-function formatDays(days?: number[]) {
-  if (!days || days.length === 0) return 'Sem dias definidos'
+function formatFrequency(supplement: Supplement) {
+  const frequency = supplement.frequency_type ?? 'daily'
+
+  if (frequency === 'daily') {
+    return 'Todos os dias'
+  }
+
+  if (frequency === 'every_other_day') {
+    return 'Dia sim / dia não'
+  }
+
+  if (frequency === 'custom_interval') {
+    const interval = supplement.interval_days ?? 1
+
+return interval === 1
+  ? 'Todos os dias'
+  : `A cada ${interval} dias`
+  }
+
+  const days = supplement.days_of_week
+
+  if (!days || days.length === 0) {
+    return 'Sem dias definidos'
+  }
 
   const labels: Record<number, string> = {
     0: 'Dom',
@@ -61,9 +78,14 @@ function formatDays(days?: number[]) {
     6: 'Sáb',
   }
 
-  if (days.length === 7) return 'Todos os dias'
+  if (days.length === 7) {
+    return 'Todos os dias'
+  }
 
-  return days.map((day) => labels[day] ?? String(day)).join(', ')
+  return [...days]
+  .sort((a, b) => a - b)
+  .map((day) => labels[day] ?? String(day))
+  .join(', ')
 }
 
 export default function SupplementDetailsScreen() {
@@ -175,7 +197,7 @@ export default function SupplementDetailsScreen() {
             <InfoBox
               icon="calendar-outline"
               label="Dias"
-              value={formatDays(supplement.days_of_week)}
+              value={formatFrequency(supplement)}
             />
             <InfoBox
               icon="flask-outline"
@@ -190,10 +212,12 @@ export default function SupplementDetailsScreen() {
               icon="cube-outline"
               label="Embalagem"
               value={
-                supplement.container_quantity
-                  ? `${supplement.container_quantity} unidades`
-                  : 'Sem quantidade'
-              }
+  supplement.container_quantity
+    ? supplement.container_quantity === 1
+      ? '1 unidade'
+      : `${supplement.container_quantity} unidades`
+    : 'Sem quantidade'
+}
             />
           </View>
 

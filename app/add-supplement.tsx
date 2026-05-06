@@ -39,6 +39,14 @@ function cleanInstructions(text: string | null) {
   return text
 }
 
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
 export default function AddSupplementScreen() {
   const router = useRouter()
   const { showAlert, AlertComponent } = useCustomAlert()
@@ -272,11 +280,13 @@ await addSupplement(
       frequencyType === 'specific_days'
         ? daysOfWeek
         : [1, 2, 3, 4, 5, 6, 0],
-    start_date: new Date().toISOString().slice(0, 10),
+    start_date: getLocalDateString(),
     interval_days:
-      frequencyType === 'custom_interval'
-        ? Number(intervalDays || 1)
-        : null,
+  frequencyType === 'custom_interval'
+    ? Number(intervalDays || 1)
+    : frequencyType === 'every_other_day'
+      ? 2
+      : null,
     is_active: true,
   },
   photoBase64
@@ -321,7 +331,7 @@ if (router.canGoBack()) {
             </TouchableOpacity>
 
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Adicionar vitamina</Text>
+              <Text style={styles.title}>Novo Suplemento</Text>
               <Text style={styles.subtitle}>
                 Usa IA para ler o rótulo ou preenche manualmente.
               </Text>
@@ -489,9 +499,11 @@ if (router.canGoBack()) {
 
   <View style={styles.optionGrid}>
     {[
-      { label: 'Todos os dias', value: 'daily' },
-      { label: 'Dias específicos', value: 'specific_days' },
-    ].map((option) => (
+  { label: 'Todos os dias', value: 'daily' },
+  { label: 'Dias específicos', value: 'specific_days' },
+  { label: 'Dia sim / dia não', value: 'every_other_day' },
+  { label: 'Personalizado', value: 'custom_interval' },
+].map((option) => (
       <TouchableOpacity
         key={option.value}
         style={[
@@ -594,7 +606,17 @@ if (router.canGoBack()) {
 
   {showTimePicker ? (
     <DateTimePicker
-      value={new Date()}
+  value={(() => {
+    const [h, m] = (reminderTimes[editingTimeIndex ?? 0] || '09:00')
+      .split(':')
+      .map(Number)
+
+    const d = new Date()
+    d.setHours(h || 9)
+    d.setMinutes(m || 0)
+
+    return d
+  })()}
       mode="time"
       display="default"
       is24Hour

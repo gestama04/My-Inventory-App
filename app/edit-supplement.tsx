@@ -28,6 +28,14 @@ import { analyzeSupplementLabel } from '../services/supplements/gemini-supplemen
 import { getSupplementSuggestion } from '../services/supplements/supplement-suggestions'
 import useCustomAlert from '../hooks/useCustomAlert'
 
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
 function cleanInstructions(text: string | null) {
   if (!text) return ''
 
@@ -61,6 +69,7 @@ export default function EditSupplementScreen() {
   const [photoBase64, setPhotoBase64] = useState('')
   const [confidence, setConfidence] = useState<number | null>(null)
   const [showTimePicker, setShowTimePicker] = useState(false)
+  const [startDate, setStartDate] = useState(getLocalDateString())
   const [frequencyType, setFrequencyType] =
     useState<SupplementFrequencyType>('daily')
 
@@ -128,7 +137,7 @@ export default function EditSupplementScreen() {
     : supplement.reminder_time
       ? [String(supplement.reminder_time).slice(0, 5)]
       : ['09:00']
-
+setStartDate(supplement.start_date ?? getLocalDateString())
 setReminderTimes(loadedReminderTimes)
 setReminderTime(loadedReminderTimes[0] ?? '09:00')
 setFrequencyType(supplement.frequency_type ?? 'daily')
@@ -345,11 +354,13 @@ days_of_week:
   frequencyType === 'specific_days'
     ? daysOfWeek
     : [1, 2, 3, 4, 5, 6, 0],
-start_date: new Date().toISOString().slice(0, 10),
+start_date: startDate,
 interval_days:
   frequencyType === 'custom_interval'
     ? Number(intervalDays || 1)
-    : null,
+    : frequencyType === 'every_other_day'
+      ? 2
+      : null,
 is_active: true,
         },
         photoBase64 || undefined
@@ -412,7 +423,7 @@ is_active: true,
             </TouchableOpacity>
 
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Editar suplemento</Text>
+              <Text style={styles.title}>Editar Suplemento</Text>
               <Text style={styles.subtitle}>
                 Atualiza os dados, muda a foto ou volta a analisar o rótulo.
               </Text>
@@ -553,9 +564,11 @@ is_active: true,
 
   <View style={styles.optionGrid}>
     {[
-      { label: 'Todos os dias', value: 'daily' },
-      { label: 'Dias específicos', value: 'specific_days' },
-    ].map((option) => (
+  { label: 'Todos os dias', value: 'daily' },
+  { label: 'Dias específicos', value: 'specific_days' },
+  { label: 'Dia sim / dia não', value: 'every_other_day' },
+  { label: 'Personalizado', value: 'custom_interval' },
+].map((option) => (
       <TouchableOpacity
         key={option.value}
         style={[
