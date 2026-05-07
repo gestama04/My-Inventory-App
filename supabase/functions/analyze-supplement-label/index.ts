@@ -8,6 +8,12 @@ const corsHeaders = {
 
 const genAI = new GoogleGenerativeAI(Deno.env.get('GEMINI_API_KEY') ?? '')
 
+const GEMINI_MODELS = [
+  'gemini-3.1-flash-lite-preview',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+]
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -16,6 +22,27 @@ function jsonResponse(body: unknown, status = 200) {
       'Content-Type': 'application/json',
     },
   })
+}
+
+async function generateWithFallback(parts: any[]) {
+  let lastError: unknown = null
+
+  for (const modelName of GEMINI_MODELS) {
+    try {
+      console.log('Trying Gemini model:', modelName)
+
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+      })
+
+      return await model.generateContent(parts)
+    } catch (error) {
+      console.error(`Gemini model failed: ${modelName}`, error)
+      lastError = error
+    }
+  }
+
+  throw lastError
 }
 
 function extractJson(text: string) {
@@ -80,10 +107,6 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'Imagem demasiado grande' }, 413)
     }
 
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite',
-    })
-
     const prompt = `
 Analisa esta imagem de um rótulo de suplemento, vitamina ou produto nutricional.
 
@@ -138,7 +161,7 @@ Regras:
 - Usa português de Portugal quando aplicável.
 `
 
-    const result = await model.generateContent([
+    const result = await generateWithFallback([
       prompt,
       {
         inlineData: {

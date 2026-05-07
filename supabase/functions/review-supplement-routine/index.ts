@@ -6,9 +6,13 @@ const corsHeaders = {
     'authorization, x-client-info, apikey, content-type',
 }
 
-const genAI = new GoogleGenerativeAI(
-  Deno.env.get('GEMINI_API_KEY') ?? ''
-)
+const genAI = new GoogleGenerativeAI(Deno.env.get('GEMINI_API_KEY') ?? '')
+
+const GEMINI_MODELS = [
+  'gemini-3.1-flash-lite-preview',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+]
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -20,9 +24,29 @@ function jsonResponse(body: unknown, status = 200) {
   })
 }
 
+async function generateWithFallback(parts: any[]) {
+  let lastError: unknown = null
+
+  for (const modelName of GEMINI_MODELS) {
+    try {
+      console.log('Trying Gemini model:', modelName)
+
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+      })
+
+      return await model.generateContent(parts)
+    } catch (error) {
+      console.error(`Gemini model failed: ${modelName}`, error)
+      lastError = error
+    }
+  }
+
+  throw lastError
+}
+
 function extractJson(text: string) {
   const cleaned = text.replace(/```json|```/g, '').trim()
-
   const firstBrace = cleaned.indexOf('{')
   const lastBrace = cleaned.lastIndexOf('}')
 
@@ -44,15 +68,8 @@ Deno.serve(async (req: Request) => {
     const { supplements } = await req.json()
 
     if (!Array.isArray(supplements)) {
-      return jsonResponse(
-        { error: 'supplements inválido' },
-        400
-      )
+      return jsonResponse({ error: 'supplements inválido' }, 400)
     }
-
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite',
-    })
 
     const prompt = `
 Analisa esta rotina de suplementos de forma geral e educativa.
@@ -87,10 +104,8 @@ Regras:
 "Informação geral. Não substitui aconselhamento médico. Segue sempre a recomendação do teu profissional de saúde."
 `
 
-    const result = await model.generateContent(prompt)
-
+    const result = await generateWithFallback([prompt])
     const text = result.response.text()
-
     const parsed = JSON.parse(extractJson(text))
 
     return jsonResponse({
@@ -111,16 +126,14 @@ Regras:
         ? parsed.timingNotes
         : [],
 
-      professionalQuestions: Array.isArray(
-        parsed.professionalQuestions
-      )
+      professionalQuestions: Array.isArray(parsed.professionalQuestions)
         ? parsed.professionalQuestions
         : [],
 
       disclaimer:
         typeof parsed.disclaimer === 'string'
           ? parsed.disclaimer
-          : 'Informação geral. Não substitui aconselhamento médico.',
+          : 'Informação geral. Não substitui aconselhamento médico. Segue sempre a recomendação do teu profissional de saúde.',
     })
   } catch (error) {
     console.error('REVIEW_ROUTINE_ERROR:', error)

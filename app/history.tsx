@@ -16,7 +16,6 @@ import useCustomAlert from '../hooks/useCustomAlert'
 import {
   getSupplementHistoryDays,
   SupplementHistoryDay,
-  clearSupplementHistory,
 } from '../services/supplements/supplement-service'
 
 function formatDate(date: string) {
@@ -49,38 +48,7 @@ const loadHistory = async () => {
       loadHistory()
     }, [])
   )
-const handleClearHistory = () => {
-  showAlert(
-    'Limpar histórico',
-    'Tens a certeza que queres apagar todo o histórico de tomas? Esta ação não pode ser desfeita.',
-    [
-      { text: 'Cancelar', style: 'cancel', onPress: () => {} },
-      {
-        text: 'Apagar',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            setLoading(true)
-            await clearSupplementHistory()
-            setDays([])
 
-            showAlert('Histórico limpo', 'O histórico foi apagado com sucesso.', [
-              { text: 'OK', onPress: () => {} },
-            ])
-          } catch (error) {
-            console.error('Erro ao limpar histórico:', error)
-
-            showAlert('Erro', 'Não foi possível limpar o histórico.', [
-              { text: 'OK', onPress: () => {} },
-            ])
-          } finally {
-            setLoading(false)
-          }
-        },
-      },
-    ]
-  )
-}
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
@@ -102,15 +70,6 @@ const handleClearHistory = () => {
                 Vê as tomas dos últimos 30 dias.
               </Text>
             </View>
-            {days.length > 0 ? (
-  <TouchableOpacity
-    style={[styles.clearButton, loading && styles.disabledButton]}
-    onPress={handleClearHistory}
-    disabled={loading}
-  >
-    <Ionicons name="trash-outline" size={21} color="#fecaca" />
-  </TouchableOpacity>
-) : null}
           </View>
 
           {loading ? (
@@ -196,16 +155,7 @@ const styles = StyleSheet.create({
   missedBox: {
   backgroundColor: '#ef4444',
 },
-clearButton: {
-  width: 44,
-  height: 44,
-  borderRadius: 22,
-  backgroundColor: 'rgba(239, 68, 68, 0.18)',
-  justifyContent: 'center',
-  alignItems: 'center',
-  borderWidth: 1,
-  borderColor: 'rgba(248, 113, 113, 0.35)',
-},
+
 disabledButton: {
   opacity: 0.55,
 },
