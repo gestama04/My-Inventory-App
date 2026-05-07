@@ -22,8 +22,8 @@ import {
   markSupplementTaken,
   unmarkSupplementTaken,
   TodaySupplement,
-  getSupplementHistoryDays,
-  SupplementHistoryDay,
+  getSupplementDayStatusDays,
+  SupplementDayStatus,
 } from '../services/supplements/supplement-service'
 
 const RING_SIZE = 108
@@ -50,7 +50,7 @@ export default function VitaStreakHome() {
   const [todayItems, setTodayItems] = useState<TodaySupplement[]>([])
   const [streak, setStreak] = useState(0)
   const [confettiKey, setConfettiKey] = useState(0)
-  const [weekDays, setWeekDays] = useState<SupplementHistoryDay[]>([])
+  const [weekDays, setWeekDays] = useState<SupplementDayStatus[]>([])
   const avatarUrl =
     currentUser?.user_metadata?.avatar_url ||
     currentUser?.user_metadata?.picture ||
@@ -182,7 +182,7 @@ export default function VitaStreakHome() {
   getSupplements(),
   getTodaySupplements(),
   getSupplementStreak(),
-  getSupplementHistoryDays(7),
+  getSupplementDayStatusDays(7),
 ])
 
 setTotalSupplements(supplements.length)
@@ -241,8 +241,8 @@ setWeekDays(historyDays)
       }
 
       await refreshStreak()
-      const historyDays = await getSupplementHistoryDays(7)
-setWeekDays(historyDays)
+      const dayStatusDays = await getSupplementDayStatusDays(7)
+setWeekDays(dayStatusDays)
     } catch (error) {
       console.error('Erro ao atualizar toma:', error)
       setTodayItems(previous)
@@ -276,8 +276,8 @@ setWeekDays(historyDays)
       )
 
       await refreshStreak()
-      const historyDays = await getSupplementHistoryDays(7)
-setWeekDays(historyDays)
+      const dayStatusDays = await getSupplementDayStatusDays(7)
+setWeekDays(dayStatusDays)
     } catch (error) {
       console.error('Erro ao marcar todas as tomas:', error)
       setTodayItems(previous)
@@ -496,7 +496,7 @@ setWeekDays(historyDays)
     </View>
   )
 }
-function WeeklyStatusWidget({ days }: { days: SupplementHistoryDay[] }) {
+function WeeklyStatusWidget({ days }: { days: SupplementDayStatus[] }) {
   const last7Days = Array.from({ length: 7 }).map((_, index) => {
     const date = new Date()
     date.setDate(date.getDate() - (6 - index))
@@ -509,8 +509,8 @@ function WeeklyStatusWidget({ days }: { days: SupplementHistoryDay[] }) {
       .replace('.', '')
       .slice(0, 3)
 
-    const hasTakes = !!found && found.takes.length > 0
-    const completed = hasTakes && found.takes.every((take) => take.taken)
+    const hasTakes = !!found
+    const completed = !!found?.completed
 
     return { date: dateString, label, hasTakes, completed }
   })

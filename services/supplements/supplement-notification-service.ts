@@ -27,13 +27,14 @@ export async function setupSupplementNotifications() {
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('supplements', {
-      name: 'Suplementos',
-      importance: Notifications.AndroidImportance.MAX,
-      sound: 'default',
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#22c55e',
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    })
+  name: 'Suplementos',
+  importance: Notifications.AndroidImportance.MAX,
+  sound: 'default',
+  vibrationPattern: [0, 250, 250, 250],
+  enableVibrate: true,
+  lightColor: '#22c55e',
+  lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+})
     const channel = await Notifications.getNotificationChannelAsync('supplements')
 console.log('[SUPP_NOTIF] ANDROID_CHANNEL', channel)
   }
@@ -154,25 +155,23 @@ export async function scheduleSupplementNotifications(
       const id = await Notifications.scheduleNotificationAsync({
         
         content: {
-          title: `Hora de tomar ${supplement.name}`,
-          body: body || 'Marca como tomado no VitaStreak.',
-          sound: 'default',
-          data: {
-            type: 'supplement-reminder',
-            supplementId: supplement.id,
-            screen: 'today',
-            
-          },
-          
-        },
-        
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-          weekday: day === 0 ? 1 : day + 1,
-          hour: parsedTime.hour,
-          minute: parsedTime.minute,
-          channelId: 'supplements',
-        },
+  title: `Hora de tomar ${supplement.name}`,
+  body: body || 'Marca como tomado no VitaStreak.',
+  sound: 'default',
+  data: {
+    type: 'supplement-reminder',
+    supplementId: supplement.id,
+    screen: 'today',
+  },
+  ...(Platform.OS === 'android' ? { channelId: 'supplements' } : {}),
+},
+
+trigger: {
+  type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+  weekday: day === 0 ? 1 : day + 1,
+  hour: parsedTime.hour,
+  minute: parsedTime.minute,
+},
       })
 
       ids.push(id)

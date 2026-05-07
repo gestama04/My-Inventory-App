@@ -12,7 +12,6 @@ import {
 import { Stack, useRouter, useFocusEffect } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
-import useCustomAlert from '../hooks/useCustomAlert'
 import {
   getSupplementHistoryDays,
   SupplementHistoryDay,
@@ -30,7 +29,6 @@ export default function HistoryScreen() {
   const router = useRouter()
   const [days, setDays] = useState<SupplementHistoryDay[]>([])
   const [loading, setLoading] = useState(true)
-  const { showAlert, AlertComponent } = useCustomAlert()
 const loadHistory = async () => {
   try {
     setLoading(true)
@@ -114,24 +112,19 @@ const loadHistory = async () => {
 
           <Text style={styles.meta}>
             {String(item.reminder_time).slice(0, 5)} ·{' '}
-            {item.taken ? 'Tomado' : 'Não tomado'}
+            Tomado
           </Text>
         </View>
 
-        <View style={[styles.checkBox, !item.taken && styles.missedBox]}>
-          <Ionicons
-            name={item.taken ? 'checkmark' : 'close'}
-            size={20}
-            color={item.taken ? '#052e16' : 'white'}
-          />
-        </View>
+        <View style={styles.checkBox}>
+  <Ionicons name="checkmark" size={20} color="#052e16" />
+</View>
       </View>
     ))}
   </View>
 ))
           )}
         </ScrollView>
-        <AlertComponent />
       </LinearGradient>
     </>
   )
@@ -152,13 +145,6 @@ const styles = StyleSheet.create({
     gap: 14,
     marginBottom: 24,
   },
-  missedBox: {
-  backgroundColor: '#ef4444',
-},
-
-disabledButton: {
-  opacity: 0.55,
-},
   backButton: {
     width: 44,
     height: 44,

@@ -231,7 +231,7 @@ export async function markSupplementTaken(
     .single()
 
   if (error) throw error
-
+  await refreshTodayDayStatus(user.id)
   return data
 }
 
@@ -256,6 +256,13 @@ export async function unmarkSupplementTaken(
     .eq('reminder_time', reminderTime)
 
   if (error) throw error
+  const { error: dayStatusError } = await supabase
+  .from('supplement_day_status')
+  .delete()
+  .eq('user_id', user.id)
+  .eq('date', today)
+
+if (dayStatusError) throw dayStatusError
 }
 
 export async function deleteSupplement(supplementId: string) {
@@ -382,79 +389,31 @@ export async function getSupplementStreak() {
 
   if (!user) throw new Error('Utilizador não autenticado')
 
-  const { data: supplements, error: supplementsError } = await supabase
-    .from('supplements')
-    .select('*')
+  const { data, error } = await supabase
+    .from('supplement_day_status')
+    .select('date, completed')
     .eq('user_id', user.id)
-    .eq('is_active', true)
+    .eq('completed', true)
 
-  if (supplementsError) throw supplementsError
-  if (!supplements || supplements.length === 0) return 0
+  if (error) throw error
 
-  const { data: logs, error: logsError } = await supabase
-    .from('supplement_logs')
-    .select('supplement_id, taken_date, reminder_time')
-    .eq('user_id', user.id)
-
-  if (logsError) throw logsError
-
-  const logsSet = new Set(
-  (logs || []).map(
-    (log: any) =>
-      `${log.taken_date}-${log.supplement_id}-${normalizeTime(log.reminder_time)}`
+  const completedDays = new Set(
+    (data || []).map((item: any) => item.date)
   )
-)
-
-  const isDayComplete = (date: Date) => {
-    const dateString = getDateString(date)
-    const scheduledTakes: string[] = []
-
-    for (const supplement of supplements || []) {
-      const supplementStartDate = supplement.start_date
-  ? new Date(`${supplement.start_date}T00:00:00`)
-  : null
-
-const currentDay = new Date(`${getDateString(date)}T00:00:00`)
-
-if (supplementStartDate && supplementStartDate > currentDay) {
-  continue
-}
-
-if (!isSupplementScheduledForDate(supplement as Supplement, date)) continue
-
-      const times = getReminderTimes(supplement as Supplement)
-
-      for (const time of times) {
-        scheduledTakes.push(`${dateString}-${supplement.id}-${normalizeTime(time)}`)
-      }
-    }
-
-    if (scheduledTakes.length === 0) return null
-
-    return scheduledTakes.every((take) => logsSet.has(take))
-  }
-
-  const today = new Date()
-  const todayComplete = isDayComplete(today)
-  const startDate = new Date(today)
-
-  if (todayComplete !== true) {
-    startDate.setDate(startDate.getDate() - 1)
-  }
 
   let streak = 0
+  const today = new Date()
 
   for (let i = 0; i < 365; i++) {
-    const date = new Date(startDate)
-    date.setDate(startDate.getDate() - i)
+    const date = new Date(today)
+    date.setDate(today.getDate() - i)
 
-    const complete = isDayComplete(date)
+    const dateString = getDateString(date)
 
-    if (complete === null) continue
-
-    if (complete) {
+    if (completedDays.has(dateString)) {
       streak++
     } else {
+      if (i === 0) continue
       break
     }
   }
@@ -592,103 +551,154 @@ export async function getSupplementHistoryDays(days = 30) {
 
   const from = getDateString(fromDate)
 
+  const { data: logs, error: logsError } = await supabase
+    .from('supplement_logs')
+    .select(`
+      id,
+      supplement_id,
+      taken_date,
+      reminder_time,
+      status,
+      taken_at,
+      supplement:supplements (
+        name,
+        brand,
+        photo_url
+      )
+    `)
+    .eq('user_id', user.id)
+    .eq('status', 'taken')
+    .gte('taken_date', from)
+    .order('taken_date', { ascending: false })
+    .order('reminder_time', { ascending: true })
+
+  if (logsError) throw logsError
+
+  const grouped: Record<string, SupplementHistoryTake[]> = {}
+
+  for (const log of logs || []) {
+    const supplement = Array.isArray((log as any).supplement)
+      ? (log as any).supplement[0] ?? null
+      : (log as any).supplement ?? null
+
+    if (!grouped[(log as any).taken_date]) {
+      grouped[(log as any).taken_date] = []
+    }
+
+    grouped[(log as any).taken_date].push({
+      id: (log as any).id,
+      supplement_id: (log as any).supplement_id,
+      taken_date: (log as any).taken_date,
+      reminder_time: normalizeTime((log as any).reminder_time),
+      taken: true,
+      supplement: {
+        name: supplement?.name ?? 'Suplemento',
+        brand: supplement?.brand ?? null,
+        photo_url: supplement?.photo_url ?? null,
+      },
+    })
+  }
+
+  return Object.keys(grouped)
+    .sort((a, b) => b.localeCompare(a))
+    .map((date) => ({
+      date,
+      takes: grouped[date],
+    })) as SupplementHistoryDay[]
+}
+
+async function refreshTodayDayStatus(userId: string) {
+  const today = getDateString()
+  const now = new Date()
+
   const { data: supplements, error: supplementsError } = await supabase
     .from('supplements')
     .select('*')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
+    .eq('is_active', true)
 
   if (supplementsError) throw supplementsError
 
   const { data: logs, error: logsError } = await supabase
     .from('supplement_logs')
     .select('supplement_id, taken_date, reminder_time')
-    .eq('user_id', user.id)
-    .gte('taken_date', from)
+    .eq('user_id', userId)
+    .eq('taken_date', today)
 
   if (logsError) throw logsError
+
+  const expectedTakes = (supplements || [])
+    .filter((supplement) =>
+      isSupplementScheduledForDate(supplement as Supplement, now)
+    )
+    .flatMap((supplement: Supplement) =>
+      getReminderTimes(supplement).map((time) => ({
+        supplement_id: supplement.id,
+        reminder_time: normalizeTime(time),
+      }))
+    )
+
+  if (expectedTakes.length === 0) return
 
   const logsSet = new Set(
     (logs || []).map(
       (log: any) =>
-        `${log.taken_date}-${log.supplement_id}-${normalizeTime(log.reminder_time)}`
+        `${log.supplement_id}-${normalizeTime(log.reminder_time)}`
     )
   )
 
-  const result: SupplementHistoryDay[] = []
+  const completed = expectedTakes.every((take) =>
+    logsSet.has(`${take.supplement_id}-${take.reminder_time}`)
+  )
 
-  for (let i = 0; i < days; i++) {
-    const date = new Date(today)
-    date.setDate(today.getDate() - i)
+  if (!completed) {
+  await supabase
+    .from('supplement_day_status')
+    .delete()
+    .eq('user_id', userId)
+    .eq('date', today)
 
-    const dateString = getDateString(date)
-    const takes: SupplementHistoryTake[] = []
-
-    for (const supplement of supplements || []) {
-      const createdAt = supplement.created_at
-        ? new Date(supplement.created_at)
-        : null
-
-      const dayEnd = new Date(date)
-      dayEnd.setHours(23, 59, 59, 999)
-
-      if (createdAt && createdAt > dayEnd) continue
-      if (!isSupplementScheduledForDate(supplement as Supplement, date)) continue
-
-      const times = getReminderTimes(supplement as Supplement)
-
-      for (const time of times) {
-        const normalizedTime = normalizeTime(time)
-        const key = `${dateString}-${supplement.id}-${normalizedTime}`
-
-        takes.push({
-          id: key,
-          supplement_id: supplement.id,
-          taken_date: dateString,
-          reminder_time: normalizedTime,
-          taken: logsSet.has(key),
-          supplement: {
-            name: supplement.name,
-            brand: supplement.brand,
-            photo_url: supplement.photo_url,
-          },
-        })
-      }
-    }
-
-    if (takes.length > 0) {
-      result.push({
-        date: dateString,
-        takes: takes.sort((a, b) => a.reminder_time.localeCompare(b.reminder_time)),
-      })
-    }
-  }
-
-  return result
+  return
 }
-export async function clearSupplementHistory() {
+
+  const { error } = await supabase.from('supplement_day_status').upsert(
+    {
+      user_id: userId,
+      date: today,
+      completed: true,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id,date' }
+  )
+
+  if (error) throw error
+}
+export type SupplementDayStatus = {
+  date: string
+  completed: boolean
+}
+
+export async function getSupplementDayStatusDays(days = 7) {
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
   if (!user) throw new Error('Utilizador não autenticado')
 
-  const today = getDateString()
+  const today = new Date()
+  const fromDate = new Date()
+  fromDate.setDate(today.getDate() - days + 1)
 
-  await supabase
-    .from('supplement_logs')
-    .delete()
+  const from = getDateString(fromDate)
+
+  const { data, error } = await supabase
+    .from('supplement_day_status')
+    .select('date, completed')
     .eq('user_id', user.id)
-
-  const { error } = await supabase
-    .from('history_clear_state')
-    .upsert(
-      {
-        user_id: user.id,
-        cleared_before: today,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' }
-    )
+    .gte('date', from)
 
   if (error) throw error
+
+  return (data || []) as SupplementDayStatus[]
 }
