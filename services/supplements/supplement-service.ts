@@ -404,7 +404,9 @@ export async function getSupplementStreak() {
   let streak = 0
   const today = new Date()
 
-  for (let i = 0; i < 365; i++) {
+  const MAX_STREAK_DAYS = 5000
+
+for (let i = 0; i < MAX_STREAK_DAYS; i++) {
     const date = new Date(today)
     date.setDate(today.getDate() - i)
 

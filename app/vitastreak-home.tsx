@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import {
   View,
   Text,
@@ -8,7 +8,6 @@ import {
   Image,
   ScrollView,
   StatusBar,
-  Animated,
   Dimensions,
 } from 'react-native'
 import { useFocusEffect, useRouter, Stack } from 'expo-router'
@@ -25,6 +24,7 @@ import {
   getSupplementDayStatusDays,
   SupplementDayStatus,
 } from '../services/supplements/supplement-service'
+import ConfettiCannon from 'react-native-confetti-cannon'
 
 const RING_SIZE = 108
 const RING_STROKE = 10
@@ -289,7 +289,6 @@ setWeekDays(dayStatusDays)
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle="light-content" backgroundColor="#071124" />
 
-      {confettiKey > 0 && <Confetti key={confettiKey} />}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -493,6 +492,18 @@ setWeekDays(dayStatusDays)
   />
 </View>
       </ScrollView>
+      {confettiKey > 0 ? (
+  <View pointerEvents="none" style={styles.confettiOverlay}>
+    <ConfettiCannon
+      key={confettiKey}
+      count={120}
+      origin={{ x: width / 2, y: 0 }}
+      fadeOut
+      autoStart
+      onAnimationEnd={() => setConfettiKey(0)}
+    />
+  </View>
+) : null}
     </View>
   )
 }
@@ -572,78 +583,8 @@ function QuickAction({
     </TouchableOpacity>
   )
 }
-function Confetti() {
-  const pieces = Array.from({ length: 24 })
 
-  return (
-    <View pointerEvents="none" style={styles.confettiLayer}>
-      {pieces.map((_, index) => (
-        <ConfettiPiece key={index} index={index} />
-      ))}
-    </View>
-  )
-}
 
-function ConfettiPiece({ index }: { index: number }) {
-  const translateY = useRef(new Animated.Value(-20)).current
-  const translateX = useRef(new Animated.Value(0)).current
-  const opacity = useRef(new Animated.Value(1)).current
-  const rotate = useRef(new Animated.Value(0)).current
-
-  const startX = (width / 24) * index + Math.random() * 14
-  const drift = Math.random() * 120 - 60
-  const duration = 1100 + Math.random() * 500
-
-  React.useEffect(() => {
-    Animated.parallel([
-      Animated.timing(translateY, {
-        toValue: 360,
-        duration,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateX, {
-        toValue: drift,
-        duration,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration,
-        useNativeDriver: true,
-      }),
-      Animated.timing(rotate, {
-        toValue: 1,
-        duration,
-        useNativeDriver: true,
-      }),
-    ]).start()
-  }, [])
-
-  const colors = ['#22c55e', '#f97316', '#38bdf8', '#a78bfa', '#facc15']
-
-  return (
-    <Animated.View
-      style={[
-        styles.confettiPiece,
-        {
-          left: startX,
-          backgroundColor: colors[index % colors.length],
-          opacity,
-          transform: [
-            { translateY },
-            { translateX },
-            {
-              rotate: rotate.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0deg', '360deg'],
-              }),
-            },
-          ],
-        },
-      ]}
-    />
-  )
-}
 
 const styles = StyleSheet.create({
   container: {
@@ -671,6 +612,11 @@ quickActionRow: {
   alignItems: 'center',
   gap: 14,
 },
+confettiOverlay: {
+  ...StyleSheet.absoluteFillObject,
+  zIndex: 999,
+  elevation: 999,
+},
 ringPercentLarge: {
   color: 'white',
   fontSize: 20,
@@ -692,24 +638,6 @@ weekDotMissed: {
 
 weekDotEmpty: {
   backgroundColor: 'rgba(148, 163, 184, 0.14)',
-},
-floatingCoachButton: {
-  position: 'absolute',
-  right: 22,
-  bottom: 28,
-  width: 62,
-  height: 62,
-  borderRadius: 31,
-  backgroundColor: '#7dd3fc',
-  justifyContent: 'center',
-  alignItems: 'center',
-  shadowColor: '#7dd3fc',
-  shadowOpacity: 0.35,
-  shadowRadius: 16,
-  shadowOffset: { width: 0, height: 0 },
-  elevation: 8,
-  borderWidth: 2,
-  borderColor: 'rgba(255,255,255,0.45)',
 },
 
 weekDaysRow: {
@@ -984,16 +912,5 @@ quickActionsTitle: {
   },
   checkCircleDone: {
   backgroundColor: '#7dd3fc',
-},
-  confettiLayer: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 50,
-  },
-  confettiPiece: {
-    position: 'absolute',
-    top: 70,
-    width: 8,
-    height: 14,
-    borderRadius: 3,
-  },
+}
 })
