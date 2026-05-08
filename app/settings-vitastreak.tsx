@@ -95,13 +95,6 @@ export default function SettingsScreen() {
             <Text style={styles.sectionTitle}>Conta</Text>
 
             <SettingItem
-              icon="person-outline"
-              title="Perfil"
-              subtitle="Ver dados da tua conta"
-              onPress={() => router.push('/profile-vitastreak' as any)}
-            />
-
-            <SettingItem
               icon="trash-outline"
               title="Apagar conta"
               subtitle="Remove dados da VitaStreak"

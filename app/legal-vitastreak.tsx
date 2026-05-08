@@ -75,11 +75,11 @@ export default function LegalVitaStreakScreen() {
   Não devem ser usadas para decidir doses, tratamentos ou combinações de suplementos.
 </Text>
 
-            <Text style={styles.heading}>Controlo dos teus dados</Text>
-            <Text style={styles.text}>
-              Podes editar ou apagar suplementos, terminar sessão e solicitar a eliminação
-              dos teus dados através das definições da app.
-            </Text>
+            <Text style={styles.heading}>Eliminação de conta</Text>
+<Text style={styles.text}>
+  Podes apagar a tua conta e os dados associados nas definições da app.
+  Também podes contactar-nos através de benigestama@gmail.com.
+</Text>
           </View>
 
           <View style={styles.card}>
