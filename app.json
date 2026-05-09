@@ -12,13 +12,14 @@
       "bundleIdentifier": "com.gestama.vitastreak"
     },
     "android": {
-      "versionCode": 6,
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#0f172a"
-      },
-      "package": "com.gestama.vitastreak"
-    },
+  "versionCode": 6,
+  "adaptiveIcon": {
+    "foregroundImage": "./assets/images/adaptive-icon.png",
+    "backgroundColor": "#0f172a"
+  },
+  "package": "com.gestama.vitastreak",
+  "googleServicesFile": "./google-services.json"
+},
     "web": {
       "bundler": "metro",
       "output": "static",

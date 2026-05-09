@@ -4,6 +4,7 @@ import { upsertUserProfile } from './supabase-service';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, Session } from '@supabase/supabase-js';
 import { clearAllListeners } from './supabase-listeners';
+import { registerPushToken } from './services/notifications/push-token-service'
 
 interface AuthContextType {
   currentUser: User | null;
@@ -103,6 +104,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         if (currentSession) {
           setSession(currentSession);
           setCurrentUser(currentSession.user);
+          await registerPushToken()
         } else if (rememberMe !== 'true') {
           // Se não tem sessão e não é para lembrar, limpar
           await AsyncStorage.removeItem('user');
@@ -208,7 +210,7 @@ console.log('AUTH EVENT:', event, {
   birth_date: data.user.user_metadata?.birth_date,
 });
       await persistUser(data.user, rememberMe);
-      
+      await registerPushToken()
       // Salvar email se "lembrar-me" estiver ativado
       if (rememberMe) {
         await AsyncStorage.setItem('savedEmail', email);
