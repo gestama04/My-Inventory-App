@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ScrollView,
   StatusBar,
+  Platform,
   Linking,
 } from 'react-native'
 import { Stack, useRouter } from 'expo-router'
@@ -52,6 +53,16 @@ export default function SettingsScreen() {
       },
     ]
   )
+}
+
+const openBatterySettings = async () => {
+  if (Platform.OS !== 'android') return
+
+  try {
+    await Linking.openSettings()
+  } catch (error) {
+    console.error('Erro ao abrir definições:', error)
+  }
 }
 
   return (
@@ -126,7 +137,14 @@ export default function SettingsScreen() {
           </View>
 <View style={styles.card}>
   <Text style={styles.sectionTitle}>Ajuda</Text>
-
+    {Platform.OS === 'android' ? (
+  <SettingItem
+    icon="battery-charging-outline"
+    title="Melhorar notificações"
+    subtitle="Abre as definições da app para colocares a bateria como Sem restrições."
+    onPress={openBatterySettings}
+  />
+) : null}
   <SettingItem
     icon="build-outline"
     title="Reparar notificações"
@@ -147,7 +165,7 @@ export default function SettingsScreen() {
   />
 
   <Text style={styles.helpText}>
-    Em alguns telemóveis Android, o sistema pode atrasar ou bloquear lembretes em segundo plano. Se isso acontecer, abre a app e usa esta opção.
+    Em alguns telemóveis Android, o sistema pode atrasar lembretes quando a poupança de bateria está ativa. Para maior fiabilidade, usa “Melhorar notificações” e define a bateria como “Sem restrições”.
   </Text>
 </View>
           <Text style={styles.footer}>2026 © VitaStreak</Text>

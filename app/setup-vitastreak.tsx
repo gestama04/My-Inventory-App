@@ -9,6 +9,8 @@ import {
   StatusBar,
   ScrollView,
   Switch,
+  Platform,
+  Linking,
   Image,
 } from 'react-native'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
@@ -114,6 +116,16 @@ export default function InitialSetupScreen({ onComplete }: InitialSetupScreenPro
     </View>
   )
 
+const openBatterySettings = async () => {
+  if (Platform.OS !== 'android') return
+
+  try {
+    await Linking.openSettings()
+  } catch (error) {
+    console.error('Erro ao abrir definições:', error)
+  }
+}
+
 const renderNotificationSettings = () => (
   <View style={styles.slideContainer}>
     <View>
@@ -183,9 +195,22 @@ const renderNotificationSettings = () => (
             Ao adicionares um suplemento, escolhes a hora e os dias da semana.
           </Text>
         </View>
+        {Platform.OS === 'android' ? (
+  <View style={styles.infoBox}>
+    <MaterialCommunityIcons name="battery-heart" size={22} color="#facc15" />
+    <View style={{ flex: 1 }}>
+      <Text style={styles.infoText}>
+        Para lembretes mais fiáveis, recomendamos definir a bateria como “Sem restrições”.
+      </Text>
+
+      <TouchableOpacity style={styles.batteryButton} onPress={openBatterySettings}>
+        <Text style={styles.batteryButtonText}>Melhorar notificações</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+) : null}
       </View>
     </View>
-
     <View>
       <View style={styles.stepButtons}>
         <TouchableOpacity style={styles.backButton} onPress={() => setCurrentStep(1)}>
@@ -208,6 +233,7 @@ const renderNotificationSettings = () => (
   </View>
 )
 
+
   return (
     <SafeAreaView style={[styles.container, currentTheme === 'dark' ? styles.darkContainer : styles.lightContainer]}>
       <StatusBar barStyle={currentTheme === 'dark' ? 'light-content' : 'dark-content'} />
@@ -226,10 +252,11 @@ const styles = StyleSheet.create({
   darkContainer: { backgroundColor: '#0f172a' },
   lightContainer: { backgroundColor: '#f8fafc' },
   scrollContent: {
-    flexGrow: 1,
-    padding: 24,
-    paddingTop: 40,
-  },
+  flexGrow: 1,
+  padding: 20,
+  paddingTop: 22,
+  paddingBottom: 24,
+},
   slideContainer: {
     flex: 1,
     justifyContent: 'space-between',
@@ -239,8 +266,8 @@ const styles = StyleSheet.create({
     marginBottom: 36,
   },
   legalBox: {
-  marginTop: 20,
-  marginBottom: 4,
+  marginTop: 16,
+  marginBottom: 0,
 },
 legalRow: {
   flexDirection: 'row',
@@ -261,6 +288,21 @@ checkbox: {
 checkboxActive: {
   backgroundColor: '#7c3aed',
 },
+batteryButton: {
+  marginTop: 10,
+  backgroundColor: 'rgba(255, 0, 0, 0.18)',
+  borderWidth: 1,
+  borderColor: 'rgba(255, 0, 0, 0.45)',
+  borderRadius: 14,
+  paddingVertical: 10,
+  paddingHorizontal: 12,
+  alignSelf: 'flex-start',
+},
+batteryButtonText: {
+  color: '#ff0000',
+  fontSize: 13,
+  fontWeight: '900',
+},
 legalText: {
   flex: 1,
   fontSize: 14,
@@ -271,6 +313,7 @@ legalLink: {
   fontSize: 14,
   fontWeight: '800',
   textDecorationLine: 'underline',
+  marginBottom: 14
 },
   logo: {
     width: 120,
@@ -320,8 +363,8 @@ legalLink: {
     marginLeft: 14,
   },
   progressContainer: {
-    marginBottom: 34,
-  },
+  marginBottom: 20,
+},
   progressBar: {
     height: 5,
     backgroundColor: 'rgba(124, 58, 237, 0.18)',
@@ -339,26 +382,26 @@ legalLink: {
     textAlign: 'center',
   },
   stepHeader: {
-    alignItems: 'center',
-    marginBottom: 34,
-  },
+  alignItems: 'center',
+  marginBottom: 22,
+},
   stepTitle: {
-    fontSize: 28,
-    fontWeight: '900',
-    marginTop: 18,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  stepDescription: {
-    fontSize: 16,
-    textAlign: 'center',
-    lineHeight: 23,
-  },
-  settingCard: {
-    borderRadius: 22,
-    padding: 20,
-    marginBottom: 24,
-  },
+  fontSize: 30,
+  fontWeight: '900',
+  marginTop: 12,
+  marginBottom: 8,
+  textAlign: 'center',
+},
+stepDescription: {
+  fontSize: 15,
+  textAlign: 'center',
+  lineHeight: 22,
+},
+settingCard: {
+  borderRadius: 22,
+  padding: 18,
+  marginBottom: 18,
+},
   darkCard: { backgroundColor: '#1e293b' },
   lightCard: { backgroundColor: '#ffffff' },
   settingRow: {
@@ -375,13 +418,13 @@ legalLink: {
     lineHeight: 20,
   },
   infoBox: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    borderRadius: 16,
-    padding: 14,
-    marginTop: 20,
-    gap: 10,
-  },
+  flexDirection: 'row',
+  backgroundColor: 'rgba(56, 189, 248, 0.12)',
+  borderRadius: 16,
+  padding: 12,
+  marginTop: 12,
+  gap: 10,
+},
   infoText: {
     flex: 1,
     color: '#cbd5e1',
