@@ -104,7 +104,11 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         if (currentSession) {
           setSession(currentSession);
           setCurrentUser(currentSession.user);
-          await registerPushToken()
+          try {
+  await registerPushToken()
+} catch (pushError) {
+  console.error('[AUTH_INIT] Erro ao registar push token:', pushError)
+}
         } else if (rememberMe !== 'true') {
           // Se não tem sessão e não é para lembrar, limpar
           await AsyncStorage.removeItem('user');
@@ -137,6 +141,7 @@ console.log('AUTH EVENT:', event, {
       setSession(newSession)
       setCurrentUser(newSession?.user ?? null)
       setLoading(false)
+      
       return
     }
 
@@ -153,12 +158,12 @@ console.log('AUTH EVENT:', event, {
     }
 
     setSession(newSession)
-    setCurrentUser(newSession?.user ?? null)
-    setLoading(false)
+setCurrentUser(newSession?.user ?? null)
+setLoading(false)
 
-    if (event === 'SIGNED_OUT') {
-      clearAllListeners()
-    }
+if (event === 'SIGNED_OUT') {
+  clearAllListeners()
+}
   }
 )
 
@@ -209,8 +214,13 @@ console.log('AUTH EVENT:', event, {
   last_name: data.user.user_metadata?.last_name ?? '',
   birth_date: data.user.user_metadata?.birth_date,
 });
-      await persistUser(data.user, rememberMe);
-      await registerPushToken()
+      await persistUser(data.user, rememberMe)
+
+try {
+  await registerPushToken()
+} catch (pushError) {
+  console.error('[LOGIN] Erro ao registar push token:', pushError)
+}
       // Salvar email se "lembrar-me" estiver ativado
       if (rememberMe) {
         await AsyncStorage.setItem('savedEmail', email);

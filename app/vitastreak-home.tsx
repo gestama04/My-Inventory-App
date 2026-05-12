@@ -23,6 +23,8 @@ import {
   TodaySupplement,
   getSupplementDayStatusDays,
   SupplementDayStatus,
+  freezeSupplementDay,
+  syncFreezeRewards
 } from '../services/supplements/supplement-service'
 import ConfettiCannon from 'react-native-confetti-cannon'
 
@@ -50,6 +52,7 @@ export default function VitaStreakHome() {
   const [todayItems, setTodayItems] = useState<TodaySupplement[]>([])
   const [streak, setStreak] = useState(0)
   const [confettiKey, setConfettiKey] = useState(0)
+  const [freezeBalance, setFreezeBalance] = useState(0)
   const [weekDays, setWeekDays] = useState<SupplementDayStatus[]>([])
   const avatarUrl =
     currentUser?.user_metadata?.avatar_url ||
@@ -67,7 +70,19 @@ export default function VitaStreakHome() {
   const progress = todayTotal > 0 ? todayCompleted / todayTotal : 0
 
   const safeTime = (t?: string | null) => t ?? ''
+const freezeYesterday = async () => {
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
 
+  const dateString = getLocalDateString(yesterday)
+
+  try {
+    await freezeSupplementDay(dateString)
+await loadHomeData()
+  } catch (error) {
+    console.error('Erro ao usar gelo:', error)
+  }
+}
   const getGreetingData = () => {
   const hour = new Date().getHours()
 
@@ -189,6 +204,8 @@ setTotalSupplements(supplements.length)
 setTodayItems(today)
 setStreak(currentStreak)
 setWeekDays(historyDays)
+const freezeData = await syncFreezeRewards(currentStreak)
+setFreezeBalance(freezeData.available)
     } catch (error) {
       console.error('Erro ao carregar home:', error)
     } finally {
@@ -202,14 +219,17 @@ setWeekDays(historyDays)
     }, [])
   )
 
-  const refreshStreak = async () => {
-    try {
-      const currentStreak = await getSupplementStreak()
-      setStreak(currentStreak)
-    } catch (error) {
-      console.error('Erro ao atualizar streak:', error)
-    }
+const refreshStreak = async () => {
+  try {
+    const currentStreak = await getSupplementStreak()
+    const freezeData = await syncFreezeRewards(currentStreak)
+
+    setStreak(currentStreak)
+    setFreezeBalance(freezeData.available)
+  } catch (error) {
+    console.error('Erro ao atualizar streak:', error)
   }
+}
 
   const toggleTaken = async (item: TodaySupplement) => {
     if (!item.id) return
@@ -283,7 +303,14 @@ setWeekDays(dayStatusDays)
       setTodayItems(previous)
     }
   }
+const yesterday = new Date()
+yesterday.setDate(yesterday.getDate() - 1)
+const yesterdayString = getLocalDateString(yesterday)
+const yesterdayStatus = weekDays.find((day) => day.date === yesterdayString)
 
+const canUseFreeze =
+  freezeBalance > 0 &&
+  (!yesterdayStatus || (!yesterdayStatus.completed && !yesterdayStatus.frozen))
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -469,6 +496,14 @@ setWeekDays(dayStatusDays)
 </View>
 
         <View style={styles.quickActions}>
+          {canUseFreeze ? (
+  <QuickAction
+    icon={<Ionicons name="snow-outline" size={24} color="#67e8f9" />}
+    title={`Usar gelo (${freezeBalance})`}
+    text="Protege o streak de ontem"
+    onPress={freezeYesterday}
+  />
+) : null}
   <QuickAction
     icon={<MaterialCommunityIcons name="pill" size={24} color="#7dd3fc" />}
     title="Ver suplementos"
@@ -522,8 +557,9 @@ function WeeklyStatusWidget({ days }: { days: SupplementDayStatus[] }) {
 
     const hasTakes = !!found
     const completed = !!found?.completed
+const frozen = !!found?.frozen
 
-    return { date: dateString, label, hasTakes, completed }
+return { date: dateString, label, hasTakes, completed, frozen }
   })
 
   return (
@@ -533,15 +569,17 @@ function WeeklyStatusWidget({ days }: { days: SupplementDayStatus[] }) {
           <Text style={styles.weekDayLabel}>{day.label}</Text>
 
           <View
-            style={[
-              styles.weekDot,
-              !day.hasTakes
-                ? styles.weekDotEmpty
-                : day.completed
-                  ? styles.weekDotDone
-                  : styles.weekDotMissed,
-            ]}
-          />
+  style={[
+    styles.weekDot,
+    !day.hasTakes
+      ? styles.weekDotEmpty
+      : day.completed
+        ? styles.weekDotDone
+        : day.frozen
+          ? styles.weekDotFrozen
+          : styles.weekDotMissed,
+  ]}
+/>
         </View>
       ))}
     </View>
@@ -584,8 +622,6 @@ function QuickAction({
   )
 }
 
-
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -611,6 +647,9 @@ quickActionRow: {
   flexDirection: 'row',
   alignItems: 'center',
   gap: 14,
+},
+weekDotFrozen: {
+  backgroundColor: 'rgba(103, 232, 249, 0.85)',
 },
 confettiOverlay: {
   ...StyleSheet.absoluteFillObject,

@@ -391,33 +391,44 @@ export async function getSupplementStreak() {
 
   const { data, error } = await supabase
     .from('supplement_day_status')
-    .select('date, completed')
+    .select('date, completed, frozen')
     .eq('user_id', user.id)
-    .eq('completed', true)
 
   if (error) throw error
 
-  const completedDays = new Set(
-    (data || []).map((item: any) => item.date)
+  const dayStatusMap = new Map(
+    (data || []).map((item: any) => [
+      item.date,
+      {
+        completed: item.completed,
+        frozen: item.frozen,
+      },
+    ])
   )
 
   let streak = 0
   const today = new Date()
-
   const MAX_STREAK_DAYS = 5000
 
-for (let i = 0; i < MAX_STREAK_DAYS; i++) {
+  for (let i = 0; i < MAX_STREAK_DAYS; i++) {
     const date = new Date(today)
     date.setDate(today.getDate() - i)
 
     const dateString = getDateString(date)
+    const status = dayStatusMap.get(dateString)
 
-    if (completedDays.has(dateString)) {
+    if (status?.completed) {
       streak++
-    } else {
-      if (i === 0) continue
-      break
+      continue
     }
+
+    if (status?.frozen) {
+      continue
+    }
+
+    if (i === 0) continue
+
+    break
   }
 
   return streak
@@ -679,6 +690,7 @@ async function refreshTodayDayStatus(userId: string) {
 export type SupplementDayStatus = {
   date: string
   completed: boolean
+  frozen?: boolean
 }
 
 export async function getSupplementDayStatusDays(days = 7) {
@@ -696,11 +708,157 @@ export async function getSupplementDayStatusDays(days = 7) {
 
   const { data, error } = await supabase
     .from('supplement_day_status')
-    .select('date, completed')
+    .select('date, completed, frozen')
     .eq('user_id', user.id)
     .gte('date', from)
 
   if (error) throw error
 
   return (data || []) as SupplementDayStatus[]
+}
+export async function freezeSupplementDay(dateString: string) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Utilizador não autenticado')
+
+  const { data: balance, error: balanceError } = await supabase
+    .from('user_streak_freezes')
+    .select('available_freezes, total_earned, total_used')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (balanceError) throw balanceError
+
+  const available = balance?.available_freezes ?? 0
+  const totalEarned = balance?.total_earned ?? 0
+  const totalUsed = balance?.total_used ?? 0
+
+  if (available <= 0) {
+    throw new Error('Sem gelos disponíveis')
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from('supplement_day_status')
+    .select('completed, frozen')
+    .eq('user_id', user.id)
+    .eq('date', dateString)
+    .maybeSingle()
+
+  if (existingError) throw existingError
+
+  if (existing?.completed) {
+    throw new Error('Este dia já está completo')
+  }
+
+  if (existing?.frozen) {
+    throw new Error('Este dia já tem gelo')
+  }
+
+  const { error: freezeError } = await supabase.from('supplement_day_status').upsert(
+    {
+      user_id: user.id,
+      date: dateString,
+      completed: false,
+      frozen: true,
+      frozen_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id,date' }
+  )
+
+  if (freezeError) throw freezeError
+
+  const { error: updateBalanceError } = await supabase
+    .from('user_streak_freezes')
+    .upsert(
+      {
+        user_id: user.id,
+        available_freezes: Math.max(available - 1, 0),
+        total_earned: totalEarned,
+        total_used: totalUsed + 1,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    )
+
+  if (updateBalanceError) throw updateBalanceError
+}
+export async function getFreezeBalance() {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Utilizador não autenticado')
+
+  const { data, error } = await supabase
+    .from('user_streak_freezes')
+    .select('available_freezes, total_earned, total_used')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (error) throw error
+
+  return {
+    available: data?.available_freezes ?? 0,
+    totalEarned: data?.total_earned ?? 0,
+    totalUsed: data?.total_used ?? 0,
+  }
+}
+
+export async function syncFreezeRewards(currentStreak: number) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Utilizador não autenticado')
+
+  const earnedByStreak = Math.floor(currentStreak / 5)
+
+  const { data: current, error: fetchError } = await supabase
+    .from('user_streak_freezes')
+    .select('available_freezes, total_earned, total_used')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (fetchError) throw fetchError
+
+  const totalEarned = current?.total_earned ?? 0
+  const available = current?.available_freezes ?? 0
+  const totalUsed = current?.total_used ?? 0
+
+  if (earnedByStreak <= totalEarned) {
+    return {
+      available,
+      totalEarned,
+      totalUsed,
+    }
+  }
+
+  const newlyEarned = earnedByStreak - totalEarned
+  const newAvailable = Math.min(available + newlyEarned, 3)
+
+  const { data, error } = await supabase
+    .from('user_streak_freezes')
+    .upsert(
+      {
+        user_id: user.id,
+        available_freezes: newAvailable,
+        total_earned: earnedByStreak,
+        total_used: totalUsed,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    )
+    .select('available_freezes, total_earned, total_used')
+    .single()
+
+  if (error) throw error
+
+  return {
+    available: data.available_freezes,
+    totalEarned: data.total_earned,
+    totalUsed: data.total_used,
+  }
 }
